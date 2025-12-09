@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { LayoutGrid, ArrowLeftRight, Users } from 'lucide-react';
 
 export const metadata: Metadata = {
-  title: 'Wispbyte League',
+  title: 'The League',
   description: 'Fantasy cricket league management',
 };
 
