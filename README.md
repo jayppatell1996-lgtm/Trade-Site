@@ -1,6 +1,8 @@
-# Wispbyte League (with Authentication)
+# The League
 
-Fantasy cricket league management with **owner-only trading**. Only team owners can execute trades involving their players.
+A fantasy cricket league management webapp with trading, analytics, and roster management.
+
+![Dashboard](https://trade-site-teal.vercel.app/)
 
 ## Features
 
