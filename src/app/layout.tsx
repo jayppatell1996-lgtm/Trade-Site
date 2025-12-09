@@ -71,9 +71,9 @@ export default function RootLayout({
                 fontWeight: 700,
                 fontSize: '14px',
               }}>
-                W
+                TL
               </div>
-              WISPBYTE LEAGUE
+              THE LEAGUE
             </Link>
             
             <nav style={{ display: 'flex', gap: '8px' }}>
