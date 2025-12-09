@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getRecentTrades, executeTrade } from '@/lib/queries';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getRecentTrades, executeTrade, getTeamByName } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +20,29 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session) {
+      return NextResponse.json(
+        { success: false, message: 'You must be signed in to make trades' },
+        { status: 401 }
+      );
+    }
+
+    const userDiscordId = (session.user as any)?.discordId;
+    
+    if (!userDiscordId) {
+      return NextResponse.json(
+        { success: false, message: 'Could not verify your Discord identity' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { team1Name, team2Name, player1Ids, player2Ids } = body;
 
-    // Validation
+    // Basic validation
     if (!team1Name || !team2Name) {
       return NextResponse.json(
         { success: false, message: 'Both teams must be specified' },
@@ -50,6 +71,24 @@ export async function POST(request: Request) {
       );
     }
 
+    // Verify the user owns team1 (the proposing team)
+    const team1 = await getTeamByName(team1Name);
+    
+    if (!team1) {
+      return NextResponse.json(
+        { success: false, message: `Team "${team1Name}" not found` },
+        { status: 404 }
+      );
+    }
+
+    if (team1.ownerId !== userDiscordId) {
+      return NextResponse.json(
+        { success: false, message: `You don't own ${team1Name}. Only team owners can trade their players.` },
+        { status: 403 }
+      );
+    }
+
+    // Execute the trade
     const result = await executeTrade(team1Name, team2Name, player1Ids, player2Ids);
     
     return NextResponse.json(result);

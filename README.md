@@ -1,203 +1,123 @@
-# Wispbyte League
+# Wispbyte League (with Authentication)
 
-A fantasy cricket league management webapp with trading, analytics, and roster management.
-
-![Dashboard](https://via.placeholder.com/800x400?text=League+Dashboard)
+Fantasy cricket league management with **owner-only trading**. Only team owners can execute trades involving their players.
 
 ## Features
 
-- 📊 **Dashboard** - Real-time league statistics, recent trades, and franchise status
-- 🔄 **Trade Center** - Propose and execute player trades between teams
-- 👥 **Franchises** - View all team rosters with search functionality
-- ✏️ **Easy Data Editing** - Use Turso's Drizzle Studio to edit data visually
-
-## Tech Stack
-
-- **Frontend**: Next.js 15 (React 19)
-- **Database**: Turso (SQLite on the edge)
-- **ORM**: Drizzle ORM
-- **Hosting**: Vercel (free tier)
-- **Total Cost**: $0/year
-
----
+- 🔐 **Discord Authentication** - Sign in with Discord to verify team ownership
+- 📊 **Dashboard** - Real-time league stats and recent trades
+- 🔄 **Trade Center** - Only accessible to team owners
+- 👥 **Franchises** - View all team rosters
 
 ## Setup Guide
 
-### Step 1: Create a Turso Database (Free)
+### 1. Turso Database (you already have this)
 
-1. Go to [turso.tech](https://turso.tech) and sign up (free)
-2. Create a new database:
-   ```bash
-   # Install Turso CLI
-   curl -sSfL https://get.tur.so/install.sh | bash
-   
-   # Login
-   turso auth login
-   
-   # Create database
-   turso db create wispbyte-league
-   
-   # Get your database URL
-   turso db show wispbyte-league --url
-   
-   # Create an auth token
-   turso db tokens create wispbyte-league
-   ```
-3. Save the URL and token - you'll need these!
+Your existing credentials:
+```
+TURSO_DATABASE_URL=libsql://league-trading-theogmaniac.aws-us-east-2.turso.io
+TURSO_AUTH_TOKEN=your-existing-token
+```
 
-### Step 2: Clone and Configure
+### 2. Create Discord Application
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **"New Application"** → name it "Wispbyte League"
+3. Go to **OAuth2** in the sidebar
+4. Copy the **Client ID** and **Client Secret**
+5. Add redirect URLs:
+   - For local: `http://localhost:3000/api/auth/callback/discord`
+   - For Vercel: `https://your-app.vercel.app/api/auth/callback/discord`
+
+### 3. Update Environment Variables
+
+Create/update your `.env` file:
+
+```env
+# Turso (existing)
+TURSO_DATABASE_URL=libsql://league-trading-theogmaniac.aws-us-east-2.turso.io
+TURSO_AUTH_TOKEN=your-existing-token
+
+# Discord OAuth (new)
+DISCORD_CLIENT_ID=your-client-id-from-discord
+DISCORD_CLIENT_SECRET=your-client-secret-from-discord
+
+# NextAuth (new)
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=any-random-string-at-least-32-chars
+```
+
+Generate a random secret:
+```bash
+openssl rand -base64 32
+```
+
+### 4. Install & Run
 
 ```bash
-# Clone the repo
-git clone https://github.com/your-username/wispbyte-league.git
-cd wispbyte-league
-
-# Install dependencies
 npm install
-
-# Copy environment file
-cp .env.example .env.local
-```
-
-Edit `.env.local` with your Turso credentials:
-```
-TURSO_DATABASE_URL=libsql://wispbyte-league-your-username.turso.io
-TURSO_AUTH_TOKEN=your-token-here
-```
-
-### Step 3: Initialize the Database
-
-```bash
-# Push the schema to Turso
-npm run db:push
-
-# Seed with your existing data
-npm run db:seed
-```
-
-### Step 4: Run Locally
-
-```bash
 npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000)
+### 5. Deploy to Vercel
 
-### Step 5: Deploy to Vercel (Free)
+Add these environment variables in Vercel:
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `NEXTAUTH_URL` = `https://your-app.vercel.app`
+- `NEXTAUTH_SECRET`
 
-1. Push your code to GitHub
-2. Go to [vercel.com](https://vercel.com) and sign up
-3. Click "New Project" and import your repo
-4. Add environment variables:
-   - `TURSO_DATABASE_URL`
-   - `TURSO_AUTH_TOKEN`
-5. Deploy!
+**Important:** Update your Discord app's OAuth2 redirect URL to include your Vercel URL.
 
 ---
 
-## Editing Data Manually
+## How Authentication Works
 
-### Option 1: Drizzle Studio (Visual Editor)
+1. Users sign in with Discord
+2. The app gets their Discord User ID
+3. This ID is matched against `ownerId` in the teams table
+4. Only matching team owners can trade those teams' players
 
-```bash
-npm run db:studio
-```
+### Team Ownership
 
-This opens a visual spreadsheet-like interface at `https://local.drizzle.studio` where you can:
-- View and edit teams
-- Add/remove players
-- Modify trade history
+Your teams have Discord User IDs as owners. For example:
+- **RR** owned by `581514869879078931`
+- **CT** owned by `256972361918578688`
 
-### Option 2: Turso Dashboard
+The owner's Discord account must match these IDs to trade.
 
-1. Go to [turso.tech](https://turso.tech)
-2. Select your database
-3. Click "Shell" to run SQL queries
+### Updating Team Ownership
 
-Example queries:
+To change who owns a team:
+
 ```sql
--- Add a new player
-INSERT INTO players (player_id, name, team_id) 
-VALUES ('newp1234', 'New Player Name', 1);
-
--- Move a player to another team
-UPDATE players SET team_id = 2 WHERE player_id = 'newp1234';
-
--- Delete a player
-DELETE FROM players WHERE player_id = 'newp1234';
-
--- View all teams
-SELECT * FROM teams;
+-- In Turso dashboard or Drizzle Studio
+UPDATE teams SET owner_id = 'new-discord-user-id' WHERE name = 'RR';
 ```
 
-### Option 3: CLI
-
-```bash
-turso db shell wispbyte-league
-```
+To find a Discord User ID:
+1. Enable Developer Mode in Discord (Settings → Advanced)
+2. Right-click on a user → Copy User ID
 
 ---
 
-## Trade Rules
+## File Changes from Original
 
-Based on the original Discord bot logic:
-
-1. Both teams must offer at least 1 player
-2. Maximum 5 players per side in a trade
-3. Teams cannot exceed their max roster size (20)
-4. Same player cannot be on both sides of a trade
-5. All trades are recorded in history
-
----
-
-## Project Structure
-
+New files added for authentication:
 ```
 src/
+├── lib/auth.ts              # NextAuth config
+├── components/
+│   ├── AuthProvider.tsx     # Session wrapper
+│   └── UserNav.tsx          # Login/logout UI
 ├── app/
-│   ├── page.tsx           # Dashboard
-│   ├── trade-center/      # Trade Center page
-│   ├── franchises/        # Franchises page
-│   ├── api/               # API routes
-│   │   ├── teams/
-│   │   ├── trades/
-│   │   └── stats/
-│   ├── layout.tsx         # Root layout with nav
-│   └── globals.css        # Styling
-├── components/            # Reusable components
-├── db/
-│   ├── schema.ts          # Database schema
-│   ├── index.ts           # DB connection
-│   └── seed.ts            # Seed script
-└── lib/
-    └── queries.ts         # Data queries
+│   ├── login/page.tsx       # Login page
+│   └── api/auth/[...nextauth]/route.ts
 ```
 
----
-
-## Customization
-
-### Adding New Teams
-
-```sql
-INSERT INTO teams (name, owner_id, max_size) 
-VALUES ('NEW', 'discord_user_id', 20);
-```
-
-### Changing Team Size Limits
-
-```sql
-UPDATE teams SET max_size = 25 WHERE name = 'RR';
-```
-
-### Clearing All Trades
-
-```sql
-DELETE FROM trades;
-```
-
----
-
-## License
-
-MIT - Use this however you'd like for your private league!
+Modified files:
+- `src/app/layout.tsx` - Added AuthProvider and UserNav
+- `src/app/trade-center/page.tsx` - Auth checks + owner validation
+- `src/app/api/trades/route.ts` - Server-side owner validation

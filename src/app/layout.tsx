@@ -2,9 +2,11 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LayoutGrid, ArrowLeftRight, Users } from 'lucide-react';
+import AuthProvider from '@/components/AuthProvider';
+import UserNav from '@/components/UserNav';
 
 export const metadata: Metadata = {
-  title: 'The League',
+  title: 'Wispbyte League',
   description: 'Fantasy cricket league management',
 };
 
@@ -38,55 +40,61 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <header style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-          background: 'var(--bg-primary)',
-          borderBottom: '1px solid var(--border-color)',
-        }}>
-          <div className="container" style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            height: '64px',
+        <AuthProvider>
+          <header style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
+            background: 'var(--bg-primary)',
+            borderBottom: '1px solid var(--border-color)',
           }}>
-            <Link href="/" style={{
+            <div className="container" style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
-              fontWeight: 700,
-              fontSize: '18px',
+              justifyContent: 'space-between',
+              height: '64px',
             }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                background: 'var(--accent-green)',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--bg-primary)',
-                fontFamily: 'JetBrains Mono, monospace',
-                fontWeight: 700,
-                fontSize: '14px',
-              }}>
-                TL
+              <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+                <Link href="/" style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  fontWeight: 700,
+                  fontSize: '18px',
+                }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    background: 'var(--accent-green)',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--bg-primary)',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    fontWeight: 700,
+                    fontSize: '14px',
+                  }}>
+                    W
+                  </div>
+                  WISPBYTE LEAGUE
+                </Link>
+                
+                <nav style={{ display: 'flex', gap: '8px' }}>
+                  <NavLink href="/" icon={LayoutGrid}>Dashboard</NavLink>
+                  <NavLink href="/trade-center" icon={ArrowLeftRight}>Trade Center</NavLink>
+                  <NavLink href="/franchises" icon={Users}>Franchises</NavLink>
+                </nav>
               </div>
-              THE LEAGUE
-            </Link>
-            
-            <nav style={{ display: 'flex', gap: '8px' }}>
-              <NavLink href="/" icon={LayoutGrid}>Dashboard</NavLink>
-              <NavLink href="/trade-center" icon={ArrowLeftRight}>Trade Center</NavLink>
-              <NavLink href="/franchises" icon={Users}>Franchises</NavLink>
-            </nav>
-          </div>
-        </header>
-        
-        <main style={{ minHeight: 'calc(100vh - 64px)', paddingBottom: '40px' }}>
-          {children}
-        </main>
+              
+              <UserNav />
+            </div>
+          </header>
+          
+          <main style={{ minHeight: 'calc(100vh - 64px)', paddingBottom: '40px' }}>
+            {children}
+          </main>
+        </AuthProvider>
       </body>
     </html>
   );

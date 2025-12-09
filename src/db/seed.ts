@@ -1,5 +1,4 @@
 import { drizzle } from 'drizzle-orm/libsql';
-import 'dotenv/config';
 import { createClient } from '@libsql/client';
 import { teams, players, trades } from './schema';
 
