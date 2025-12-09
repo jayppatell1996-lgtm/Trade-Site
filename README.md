@@ -1,4 +1,4 @@
-# Wispbyte League
+# The League
 
 A fantasy cricket league management webapp with trading, analytics, and roster management.
 
