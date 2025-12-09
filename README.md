@@ -2,7 +2,7 @@
 
 A fantasy cricket league management webapp with trading, analytics, and roster management.
 
-![Dashboard](https://via.placeholder.com/800x400?text=League+Dashboard)
+![Dashboard](https://trade-site-teal.vercel.app/)
 
 ## Features
 
