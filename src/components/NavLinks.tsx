@@ -10,6 +10,7 @@ const baseLinks = [
   { href: '/franchises', label: 'Franchises' },
   { href: '/trade-center', label: 'Trade Center' },
   { href: '/auction', label: 'Auction' },
+  { href: '/auction-summary', label: 'Summary' },
 ];
 
 export function NavLinks() {

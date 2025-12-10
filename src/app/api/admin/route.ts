@@ -150,6 +150,64 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      case 'delete_round': {
+        // Delete an auction round and all its players
+        const { roundId } = data;
+
+        if (!roundId) {
+          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
+        }
+
+        // Get round info
+        const round = await db.select().from(auctionRounds).where(eq(auctionRounds.id, roundId));
+        
+        if (round.length === 0) {
+          return NextResponse.json({ error: 'Round not found' }, { status: 404 });
+        }
+
+        // Check if round is currently active
+        if (round[0].isActive) {
+          return NextResponse.json({ error: 'Cannot delete an active round. Stop the auction first.' }, { status: 400 });
+        }
+
+        const roundName = round[0].name;
+
+        // Delete all players in this round
+        await db.delete(auctionPlayers).where(eq(auctionPlayers.roundId, roundId));
+
+        // Delete the round
+        await db.delete(auctionRounds).where(eq(auctionRounds.id, roundId));
+
+        return NextResponse.json({ 
+          success: true, 
+          message: `Round "${roundName}" and all its players have been deleted` 
+        });
+      }
+
+      case 'reset_round': {
+        // Reset a round's status and all players to pending
+        const { roundId } = data;
+
+        if (!roundId) {
+          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
+        }
+
+        // Reset round status
+        await db.update(auctionRounds)
+          .set({ isActive: false, isCompleted: false })
+          .where(eq(auctionRounds.id, roundId));
+
+        // Reset all players to pending
+        await db.update(auctionPlayers)
+          .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null })
+          .where(eq(auctionPlayers.roundId, roundId));
+
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Round has been reset' 
+        });
+      }
+
       case 'update_team': {
         // Update single team
         const { id, name, ownerId, ownerName, maxSize, purse } = data;
@@ -261,6 +319,62 @@ export async function POST(request: NextRequest) {
         });
 
         return NextResponse.json({ success: true, message: `Team "${name}" created` });
+      }
+
+      case 'delete_round': {
+        // Delete an auction round and all its players
+        const { roundId } = data;
+
+        if (!roundId) {
+          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
+        }
+
+        // Get round info
+        const round = await db.select().from(auctionRounds).where(eq(auctionRounds.id, roundId));
+        
+        if (round.length === 0) {
+          return NextResponse.json({ error: 'Round not found' }, { status: 404 });
+        }
+
+        // Don't allow deleting active rounds
+        if (round[0].isActive) {
+          return NextResponse.json({ error: 'Cannot delete an active round. Stop the auction first.' }, { status: 400 });
+        }
+
+        const roundName = round[0].name;
+        const roundNumber = round[0].roundNumber;
+
+        // Delete all players in this round
+        await db.delete(auctionPlayers).where(eq(auctionPlayers.roundId, roundId));
+
+        // Delete the round
+        await db.delete(auctionRounds).where(eq(auctionRounds.id, roundId));
+
+        return NextResponse.json({ 
+          success: true, 
+          message: `Round ${roundNumber} "${roundName}" and all its players have been deleted` 
+        });
+      }
+
+      case 'reset_round': {
+        // Reset a round - mark all players as pending again
+        const { roundId } = data;
+
+        if (!roundId) {
+          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
+        }
+
+        // Reset all players in this round to pending
+        await db.update(auctionPlayers)
+          .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null })
+          .where(eq(auctionPlayers.roundId, roundId));
+
+        // Reset round status
+        await db.update(auctionRounds)
+          .set({ isActive: false, isCompleted: false })
+          .where(eq(auctionRounds.id, roundId));
+
+        return NextResponse.json({ success: true, message: 'Round has been reset' });
       }
 
       default:

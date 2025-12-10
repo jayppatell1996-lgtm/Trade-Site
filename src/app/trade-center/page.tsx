@@ -43,26 +43,32 @@ export default function TradeCenterPage() {
         setTeam1(userTeam.name);
       }
     }
-  }, [session, teams]);
+  }, [session, teams, team1]);
 
   const fetchTeams = async () => {
     try {
       const res = await fetch('/api/teams');
+      if (!res.ok) {
+        throw new Error('Failed to fetch teams');
+      }
       const data = await res.json();
       
-      // API returns { teams, players } - combine them
-      if (data && data.teams && Array.isArray(data.teams)) {
+      // Handle { teams, players } format
+      if (data && typeof data === 'object' && 'teams' in data) {
+        const teamsArray = Array.isArray(data.teams) ? data.teams : [];
         const playersArray = Array.isArray(data.players) ? data.players : [];
-        const teamsWithPlayers = data.teams.map((team: any) => ({
+        const teamsWithPlayers = teamsArray.map((team: Team) => ({
           ...team,
-          players: playersArray.filter((p: any) => p.teamId === team.id) || [],
+          players: playersArray.filter((p: Player) => p.teamId === team.id),
         }));
         setTeams(teamsWithPlayers);
-      } else if (Array.isArray(data)) {
-        // Fallback for old format
-        setTeams(data);
-      } else {
-        console.error('Unexpected API response format:', data);
+      } 
+      // Handle array format (legacy)
+      else if (Array.isArray(data)) {
+        setTeams(data.map((t: Team) => ({ ...t, players: t.players || [] })));
+      } 
+      else {
+        console.error('Unexpected API response:', data);
         setTeams([]);
       }
     } catch (error) {
@@ -204,7 +210,7 @@ export default function TradeCenterPage() {
                 Purse: <span className="text-accent font-mono">${(team1Data.purse / 1000000).toFixed(2)}M</span>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {team1Data.players.map(player => (
+                {(team1Data.players || []).map(player => (
                   <button
                     key={player.id}
                     onClick={() => togglePlayer1(player.name)}
@@ -217,6 +223,9 @@ export default function TradeCenterPage() {
                     {player.name}
                   </button>
                 ))}
+                {(!team1Data.players || team1Data.players.length === 0) && (
+                  <p className="text-gray-500 text-sm text-center py-4">No players on this team</p>
+                )}
               </div>
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-sm text-gray-400">
@@ -250,7 +259,7 @@ export default function TradeCenterPage() {
                 Purse: <span className="text-accent font-mono">${(team2Data.purse / 1000000).toFixed(2)}M</span>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {team2Data.players.map(player => (
+                {(team2Data.players || []).map(player => (
                   <button
                     key={player.id}
                     onClick={() => togglePlayer2(player.name)}
@@ -263,6 +272,9 @@ export default function TradeCenterPage() {
                     {player.name}
                   </button>
                 ))}
+                {(!team2Data.players || team2Data.players.length === 0) && (
+                  <p className="text-gray-500 text-sm text-center py-4">No players on this team</p>
+                )}
               </div>
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-sm text-gray-400">

@@ -585,14 +585,68 @@ export default function AdminPage() {
 
                 return (
                   <div key={round.id} className="bg-surface-light rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-3">
                       <h3 className="font-medium">Round {round.roundNumber}: {round.name}</h3>
-                      <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
                         {round.isActive && (
                           <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Active</span>
                         )}
                         {round.isCompleted && (
                           <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Completed</span>
+                        )}
+                        {!round.isActive && (
+                          <>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`Reset Round ${round.roundNumber}? All players will be set back to pending.`)) {
+                                  try {
+                                    const res = await fetch('/api/admin', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ action: 'reset_round', roundId: round.id }),
+                                    });
+                                    const data = await res.json();
+                                    if (res.ok) {
+                                      setMessage({ type: 'success', text: data.message });
+                                      fetchData();
+                                    } else {
+                                      setMessage({ type: 'error', text: data.error });
+                                    }
+                                  } catch (error) {
+                                    setMessage({ type: 'error', text: 'Failed to reset round' });
+                                  }
+                                }
+                              }}
+                              className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded hover:bg-yellow-500/30"
+                            >
+                              🔄 Reset
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`DELETE Round ${round.roundNumber}: ${round.name}?\n\nThis will permanently delete the round and ALL players in it. This cannot be undone!`)) {
+                                  try {
+                                    const res = await fetch('/api/admin', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ action: 'delete_round', roundId: round.id }),
+                                    });
+                                    const data = await res.json();
+                                    if (res.ok) {
+                                      setMessage({ type: 'success', text: data.message });
+                                      fetchData();
+                                    } else {
+                                      setMessage({ type: 'error', text: data.error });
+                                    }
+                                  } catch (error) {
+                                    setMessage({ type: 'error', text: 'Failed to delete round' });
+                                  }
+                                }
+                              }}
+                              className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>

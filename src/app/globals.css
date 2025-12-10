@@ -61,19 +61,24 @@ body {
 
 /* Button styles */
 .btn-primary {
-  @apply bg-accent text-black font-semibold px-6 py-3 rounded-lg hover:bg-accent-dim transition-all duration-200;
+  @apply bg-accent text-black font-semibold px-6 py-3 rounded-lg hover:bg-accent-dim transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
 }
 
 .btn-secondary {
-  @apply bg-surface border border-border text-foreground font-medium px-6 py-3 rounded-lg hover:bg-surface-light transition-all duration-200;
+  @apply bg-surface border border-border text-foreground font-medium px-6 py-3 rounded-lg hover:bg-surface-light transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
 }
 
 .btn-danger {
-  @apply bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200;
+  @apply bg-red-600 text-white font-semibold px-6 py-3 rounded-lg hover:bg-red-700 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
 }
 
 .btn-warning {
-  @apply bg-yellow-500 text-black font-semibold px-6 py-3 rounded-lg hover:bg-yellow-600 transition-all duration-200;
+  @apply bg-yellow-500 text-black font-semibold px-6 py-3 rounded-lg hover:bg-yellow-600 transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+}
+
+/* Scale utility */
+.scale-98 {
+  transform: scale(0.98);
 }
 
 /* Card styles */

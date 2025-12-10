@@ -57,8 +57,14 @@ export async function GET() {
 
     // Calculate remaining time
     let remainingTime = 0;
-    if (state.timerEndTime && state.isActive && !state.isPaused) {
-      remainingTime = Math.max(0, Math.floor((state.timerEndTime - Date.now()) / 1000));
+    if (state.timerEndTime && state.isActive) {
+      if (state.isPaused) {
+        // When paused, timerEndTime stores the remaining milliseconds
+        remainingTime = Math.max(0, Math.floor(state.timerEndTime / 1000));
+      } else {
+        // When active, timerEndTime is the actual end timestamp
+        remainingTime = Math.max(0, Math.floor((state.timerEndTime - Date.now()) / 1000));
+      }
     }
 
     // Get last sale from logs

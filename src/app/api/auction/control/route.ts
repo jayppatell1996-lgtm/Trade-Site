@@ -317,24 +317,32 @@ export async function POST(request: NextRequest) {
       }
 
       case 'pause': {
+        // Calculate remaining time and store it
+        const remainingMs = state.timerEndTime ? Math.max(0, state.timerEndTime - Date.now()) : 0;
+        
         await db.update(auctionState)
           .set({
             isPaused: true,
+            // Store remaining time in timerEndTime as negative (flag that it's remaining time, not end time)
+            timerEndTime: remainingMs,
             lastUpdated: new Date().toISOString(),
           })
           .where(eq(auctionState.id, state.id));
 
         await logAction(state.currentRoundId, 'Auction paused', 'pause');
 
-        return NextResponse.json({ success: true, message: 'Auction paused' });
+        return NextResponse.json({ success: true, message: 'Auction paused', remainingTime: Math.ceil(remainingMs / 1000) });
       }
 
       case 'resume': {
-        // Resume with fresh timer
+        // Resume with the remaining time that was stored when paused
+        const storedRemainingMs = state.timerEndTime || (BID_INCREMENT_TIME * 1000);
+        const newEndTime = Date.now() + storedRemainingMs;
+        
         await db.update(auctionState)
           .set({
             isPaused: false,
-            timerEndTime: Date.now() + (BID_CONTINUE_TIME * 1000),
+            timerEndTime: newEndTime,
             lastUpdated: new Date().toISOString(),
           })
           .where(eq(auctionState.id, state.id));
