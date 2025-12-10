@@ -135,6 +135,7 @@ export async function POST(request: NextRequest) {
         if (playersData && playersData.length > 0) {
           const playerInserts = playersData.map((player: any, index: number) => ({
             roundId,
+            playerId: player.player_id || player.playerId || null,
             name: player.name,
             category: player.category,
             basePrice: player.base_price || player.basePrice,

@@ -45,6 +45,7 @@ export const auctionRounds = sqliteTable('auction_rounds', {
 export const auctionPlayers = sqliteTable('auction_players', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   roundId: integer('round_id').references(() => auctionRounds.id),
+  playerId: text('player_id'), // Player ID from import data
   name: text('name').notNull(),
   category: text('category').notNull(),
   basePrice: real('base_price').notNull(),
@@ -66,6 +67,7 @@ export const auctionState = sqliteTable('auction_state', {
   highestBidderId: text('highest_bidder_id'), // Discord ID
   highestBidderTeam: text('highest_bidder_team'),
   timerEndTime: integer('timer_end_time'), // Unix timestamp
+  pausedTimeRemaining: integer('paused_time_remaining'), // Milliseconds remaining when paused
   lastUpdated: text('last_updated'),
 });
 

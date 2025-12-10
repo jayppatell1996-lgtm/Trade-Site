@@ -46,6 +46,11 @@ body {
   animation: pulse-red 0.5s ease-in-out infinite;
 }
 
+/* Smooth timer bar - CSS transition for smoother countdown */
+.timer-bar {
+  transition: width 1s linear, background-color 0.3s ease;
+}
+
 /* Glow effects */
 .glow-green {
   box-shadow: 0 0 20px rgba(0, 255, 128, 0.3);

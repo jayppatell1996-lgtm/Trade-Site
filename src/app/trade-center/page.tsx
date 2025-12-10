@@ -1,8 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+
+interface Player {
+  id: number;
+  name: string;
+  playerId: string;
+  teamId: number;
+  category: string | null;
+}
 
 interface Team {
   id: number;
@@ -12,12 +20,6 @@ interface Team {
   maxSize: number;
   purse: number;
   players: Player[];
-}
-
-interface Player {
-  id: number;
-  name: string;
-  teamId: number;
 }
 
 export default function TradeCenterPage() {
@@ -31,9 +33,60 @@ export default function TradeCenterPage() {
   const [trading, setTrading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const fetchTeams = useCallback(async () => {
+    try {
+      const res = await fetch('/api/teams');
+      if (!res.ok) {
+        throw new Error('Failed to fetch teams');
+      }
+      const data = await res.json();
+      
+      // Defensive parsing - handle all possible response formats
+      let teamsArray: Team[] = [];
+      let playersArray: Player[] = [];
+      
+      if (!data) {
+        setTeams([]);
+        return;
+      }
+      
+      // Handle different API response formats
+      if (Array.isArray(data)) {
+        // Format 1: Direct array of teams
+        teamsArray = data.map(t => ({
+          ...t,
+          players: Array.isArray(t.players) ? t.players : []
+        }));
+      } else if (typeof data === 'object') {
+        // Format 2: { teams: [], players: [] }
+        if (Array.isArray(data.teams)) {
+          teamsArray = data.teams;
+        }
+        if (Array.isArray(data.players)) {
+          playersArray = data.players;
+        }
+        
+        // Map players to teams if needed
+        teamsArray = teamsArray.map(team => ({
+          ...team,
+          players: Array.isArray(team.players) && team.players.length > 0
+            ? team.players
+            : playersArray.filter(p => p && p.teamId === team.id)
+        }));
+      }
+      
+      setTeams(teamsArray);
+    } catch (error) {
+      console.error('Error fetching teams:', error);
+      setTeams([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTeams();
-  }, []);
+  }, [fetchTeams]);
 
   // Auto-select user's team
   useEffect(() => {
@@ -45,43 +98,12 @@ export default function TradeCenterPage() {
     }
   }, [session, teams, team1]);
 
-  const fetchTeams = async () => {
-    try {
-      const res = await fetch('/api/teams');
-      if (!res.ok) {
-        throw new Error('Failed to fetch teams');
-      }
-      const data = await res.json();
-      
-      // Handle { teams, players } format
-      if (data && typeof data === 'object' && 'teams' in data) {
-        const teamsArray = Array.isArray(data.teams) ? data.teams : [];
-        const playersArray = Array.isArray(data.players) ? data.players : [];
-        const teamsWithPlayers = teamsArray.map((team: Team) => ({
-          ...team,
-          players: playersArray.filter((p: Player) => p.teamId === team.id),
-        }));
-        setTeams(teamsWithPlayers);
-      } 
-      // Handle array format (legacy)
-      else if (Array.isArray(data)) {
-        setTeams(data.map((t: Team) => ({ ...t, players: t.players || [] })));
-      } 
-      else {
-        console.error('Unexpected API response:', data);
-        setTeams([]);
-      }
-    } catch (error) {
-      console.error('Error fetching teams:', error);
-      setTeams([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const userOwnedTeams = teams.filter(t => t.ownerId === session?.user?.discordId);
-  const team1Data = teams.find(t => t.name === team1);
-  const team2Data = teams.find(t => t.name === team2);
+  // Safely filter teams
+  const userOwnedTeams = Array.isArray(teams) 
+    ? teams.filter(t => t && t.ownerId === session?.user?.discordId)
+    : [];
+  const team1Data = Array.isArray(teams) ? teams.find(t => t && t.name === team1) : undefined;
+  const team2Data = Array.isArray(teams) ? teams.find(t => t && t.name === team2) : undefined;
 
   const togglePlayer1 = (name: string) => {
     setSelectedPlayers1(prev => 
@@ -165,11 +187,14 @@ export default function TradeCenterPage() {
         <div className="card text-center max-w-md">
           <div className="text-6xl mb-4">🏟️</div>
           <h2 className="text-xl font-semibold mb-2">No Team Found</h2>
-          <p className="text-gray-400">You don't own any teams. Only team owners can make trades.</p>
+          <p className="text-gray-400">You don&apos;t own any teams. Only team owners can make trades.</p>
         </div>
       </div>
     );
   }
+
+  const team1Players = Array.isArray(team1Data?.players) ? team1Data.players : [];
+  const team2Players = Array.isArray(team2Data?.players) ? team2Data.players : [];
 
   return (
     <div className="space-y-8">
@@ -210,7 +235,7 @@ export default function TradeCenterPage() {
                 Purse: <span className="text-accent font-mono">${(team1Data.purse / 1000000).toFixed(2)}M</span>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {(team1Data.players || []).map(player => (
+                {team1Players.map(player => (
                   <button
                     key={player.id}
                     onClick={() => togglePlayer1(player.name)}
@@ -220,10 +245,11 @@ export default function TradeCenterPage() {
                         : 'bg-surface-light hover:bg-surface border border-transparent'
                     }`}
                   >
-                    {player.name}
+                    <span>{player.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">({player.playerId})</span>
                   </button>
                 ))}
-                {(!team1Data.players || team1Data.players.length === 0) && (
+                {team1Players.length === 0 && (
                   <p className="text-gray-500 text-sm text-center py-4">No players on this team</p>
                 )}
               </div>
@@ -248,7 +274,7 @@ export default function TradeCenterPage() {
             className="select w-full mb-4"
           >
             <option value="">Select Team</option>
-            {teams.filter(t => t.name !== team1).map(team => (
+            {(Array.isArray(teams) ? teams : []).filter(t => t && t.name !== team1).map(team => (
               <option key={team.id} value={team.name}>{team.name}</option>
             ))}
           </select>
@@ -259,7 +285,7 @@ export default function TradeCenterPage() {
                 Purse: <span className="text-accent font-mono">${(team2Data.purse / 1000000).toFixed(2)}M</span>
               </div>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {(team2Data.players || []).map(player => (
+                {team2Players.map(player => (
                   <button
                     key={player.id}
                     onClick={() => togglePlayer2(player.name)}
@@ -269,10 +295,11 @@ export default function TradeCenterPage() {
                         : 'bg-surface-light hover:bg-surface border border-transparent'
                     }`}
                   >
-                    {player.name}
+                    <span>{player.name}</span>
+                    <span className="text-xs text-gray-500 ml-2">({player.playerId})</span>
                   </button>
                 ))}
-                {(!team2Data.players || team2Data.players.length === 0) && (
+                {team2Players.length === 0 && (
                   <p className="text-gray-500 text-sm text-center py-4">No players on this team</p>
                 )}
               </div>

@@ -1,139 +1,164 @@
-# Auction Timer Fixes
+# Wispbyte League v2
 
-## ⚠️ IMPORTANT: Merge Instructions
+Fantasy Cricket League Management Platform with Live Auction System
 
-**DO NOT blindly replace your existing `src/lib/` folder!**
+## Features
 
-Your project already has `src/lib/db/index.ts` and `src/lib/auth.ts`. The files I've provided are examples that should work, but you may need to:
+### 🏟️ Franchises
+- View all teams with remaining purse values
+- Roster management
+- Player tracking with purchase prices
 
-1. **Keep your existing `src/lib/db/index.ts`** - it already has your Turso connection
-2. **Keep your existing `src/lib/auth.ts`** - it already has your Discord OAuth setup
-3. **Only add to `src/lib/db/schema.ts`** - add the `playerId` field to `auctionPlayers` if it's not there
+### 🔄 Trade Center
+- Execute trades between teams
+- Only team owners can trade their players
+- Full trade history tracking
 
-**Files to REPLACE:**
-- `src/app/auction/page.tsx`
-- `src/app/api/auction/state/route.ts`
-- `src/app/api/auction/control/route.ts`
-- `src/app/api/auction/bid/route.ts`
-- `src/app/api/auction/sold/route.ts`
-- `src/app/api/auction/rounds/route.ts`
-- `src/app/api/auction/rounds/[roundId]/players/route.ts`
+### 🔨 Live Auction System
+- Real-time bidding with timer
+- 6 auction rounds support
+- Bid increment tiers (matching Discord bot logic):
+  - Base ≥ $2M → $1M increment
+  - Base ≥ $1M → $500K increment
+  - Base ≥ $500K → $250K increment
+  - Else → base price increment
+- Timer: 10s initial, 6s on subsequent bids
+- Admin controls: Start, Next, Sold, Pause/Resume, Stop
 
-**Files to MERGE (don't replace):**
-- `src/lib/db/schema.ts` - add `playerId` column to your existing schema
-- `src/lib/db/index.ts` - keep your existing one
-- `src/lib/auth.ts` - keep your existing one
+### 🔐 Admin Panel (PS & CT Owners Only)
+Access restricted to Discord IDs:
+- `256972361918578688` (CT Owner)
+- `1111497896018313268` (PS Owner)
 
----
+Admin features:
+- Edit teams (name, owner, purse, max size)
+- Manage players (add/remove)
+- Import teams from JSON
+- Import auction rounds from JSON
+- Import unsold players from JSON
 
-## Issues Fixed
+## Setup
 
-### 1. Timer Showing Huge Number (1765353084s)
-**Problem:** Timer was displaying raw Unix timestamp instead of remaining seconds.
+### 1. Environment Variables
 
-**Solution:** Fixed `state/route.ts` to properly calculate remaining time:
-- When active: `remainingTime = (timerEndTime - Date.now()) / 1000`
-- When paused: `timerEndTime` stores remaining milliseconds directly
-- Added validation to ensure timer is always a valid, reasonable number
-- Capped maximum at 12 seconds
+Copy `.env.example` to `.env` and fill in your values:
 
-### 2. `e.toFixed is not a function` Error
-**Problem:** Timer value was not a valid number, causing crash.
+```bash
+# Database (Turso)
+TURSO_DATABASE_URL=libsql://your-database.turso.io
+TURSO_AUTH_TOKEN=your-auth-token
 
-**Solution:** Added defensive checks in both API and frontend:
-- `Number.isFinite()` validation
-- Fallback to 0 for invalid values
-- `Math.max(0, ...)` to prevent negative values
+# Discord OAuth
+DISCORD_CLIENT_ID=1308127862485684268
+DISCORD_CLIENT_SECRET=your-secret
 
-### 3. Resume Now Resets Timer
-**Changed Behavior:** Resume button now resets timer to 12 seconds (instead of preserving remaining time).
+# NextAuth
+NEXTAUTH_URL=https://trade-site-teal.vercel.app
+NEXTAUTH_SECRET=your-secret-key
+```
 
-### 4. Timer Constants Updated
-- **Initial timer:** 12 seconds (was 10)
-- **After bid:** 8 seconds (was 6)
+### 2. Discord OAuth Setup
 
-### 5. Smoother Progress Bar
-- Timer decrements by 0.1 seconds (100ms intervals) for smooth animation
-- CSS transition: `duration-100 ease-linear`
-- Local timer state separate from server sync (syncs every 1.5s)
+Add this redirect URL in Discord Developer Portal:
+```
+https://trade-site-teal.vercel.app/api/auth/callback/discord
+```
 
-### 6. Last-Second Bidding Allowed
-- Added 500ms grace period for bids
-- Bids accepted if auction is active, even at 0 seconds
-- Only rejects if time has been expired for > 500ms
+### 3. Database Setup
 
-### 7. Player ID Tracking
-When players are sold, they're now added to teams with their original `playerId`:
-```javascript
+Push the schema to your database:
+```bash
+npm run db:push
+```
+
+Or generate migrations:
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+### 4. Seed Data (Optional)
+
+To seed with initial data:
+```bash
+npx tsx scripts/seed.ts
+```
+
+### 5. Development
+
+```bash
+npm install
+npm run dev
+```
+
+### 6. Deploy to Vercel
+
+Add these environment variables in Vercel:
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `NEXTAUTH_URL`
+- `NEXTAUTH_SECRET`
+
+## JSON Import Formats
+
+### Teams Format
+```json
 {
-  id: originalPlayerId,       // From auction round import
-  auctionPlayerId: auctionId, // Internal auction tracking ID  
-  name: "Player Name",
-  category: "Batsman",
-  purchasePrice: 1000000,
-  purchasedAt: "2024-...",
-  roundId: 1
+  "teams": {
+    "TeamName": {
+      "owner": "discord_id",
+      "max_size": 20,
+      "purse": 50000000,
+      "players": ["Player 1", "Player 2"]
+    }
+  }
 }
 ```
 
-### 8. Auction Round List
-Added "📋 Change Round" button to view and select different auction rounds.
-
-## Files Changed
-
-```
-src/
-├── app/
-│   ├── auction/
-│   │   └── page.tsx              # Complete rewrite with all fixes
-│   └── api/
-│       └── auction/
-│           ├── state/route.ts    # Fixed timer calculation
-│           ├── control/route.ts  # Resume resets timer
-│           ├── bid/route.ts      # 8s reset, last-second bids
-│           ├── sold/route.ts     # Includes player ID
-│           └── rounds/
-│               ├── route.ts      # List, create, delete rounds
-│               └── [roundId]/
-│                   └── players/route.ts
-└── lib/
-    └── db/
-        └── schema.ts             # Added playerId to auction_players
-
-migrations/
-└── add_player_id.sql            # Migration to add player_id column
+### Auction Round Format
+```json
+{
+  "players_for_auction": [
+    {
+      "name": "Player Name",
+      "category": "Batsman",
+      "base_price": 500000
+    }
+  ]
+}
 ```
 
-## Migration Required
-
-Run this SQL to add the `player_id` column (if it doesn't exist):
-```sql
-ALTER TABLE auction_players ADD COLUMN player_id INTEGER;
+### Unsold Players Format
+```json
+{
+  "unsold": [
+    {
+      "name": "Player Name",
+      "category": "Bowler",
+      "base_price": 100000
+    }
+  ]
+}
 ```
 
-## Timer Flow
+## Tech Stack
 
-1. **Start Auction:** Timer set to 12 seconds
-2. **Bid Placed:** Timer resets to 8 seconds
-3. **Pause:** Remaining time stored (in milliseconds)
-4. **Resume:** Timer resets to 12 seconds (full reset)
-5. **Timer reaches 0:** 500ms grace period for final bids, then auto-sell/unsold
+- **Framework**: Next.js 15 (App Router)
+- **Database**: Turso (SQLite)
+- **ORM**: Drizzle
+- **Auth**: NextAuth.js with Discord
+- **Styling**: Tailwind CSS
+- **Hosting**: Vercel
 
-## API Changes
+## Database Schema
 
-### POST /api/auction/bid
-- Returns `{ remainingTime: 8 }` on successful bid
-- Returns `{ retry: true }` on 429 (server busy)
-- 500ms grace period for last-second bids
-
-### POST /api/auction/control
-Actions: `start`, `pause`, `resume`, `skip`, `stop`
-- `resume` now resets timer to 12s
-
-### POST /api/auction/sold
-- Now includes `playerId` in response
-- Adds player to team with full tracking data
-
-### GET /api/auction/state
-- `remainingTime` always returns valid number 0-12
-- Proper handling of paused vs active states
+- `teams` - Franchise information
+- `players` - Players on team rosters
+- `trades` - Trade history
+- `auction_rounds` - 6 auction rounds
+- `auction_players` - Players in each round
+- `auction_state` - Current auction state
+- `auction_logs` - Auction activity logs
+- `unsold_players` - Unsold player pool

@@ -1,95 +1,110 @@
-import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { auctionState, auctionPlayers, teams } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
-
-// Timer constants
-const BID_INCREMENT_TIME = 12; // Initial timer (seconds)
-const BID_CONTINUE_TIME = 8;   // Timer after bid (seconds)
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/db';
+import { auctionState, auctionPlayers, auctionRounds, teams, auctionLogs, players } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
 
 export async function GET() {
   try {
-    const states = await db.select().from(auctionState).limit(1);
-    
-    if (states.length === 0) {
-      return NextResponse.json({
+    // Get current auction state (there should only be one row)
+    const states = await db.select().from(auctionState);
+    let state = states[0];
+
+    // If no state exists, create one
+    if (!state) {
+      const newState = await db.insert(auctionState).values({
         isActive: false,
-        currentPlayerId: null,
-        currentPlayer: null,
-        currentBid: 0,
-        highestBidderId: null,
-        highestBidderName: null,
-        remainingTime: 0,
         isPaused: false,
-        roundId: null
-      });
+      }).returning();
+      state = newState[0];
     }
 
-    const state = states[0];
-    
     // Get current player details if there's an active auction
     let currentPlayer = null;
     if (state.currentPlayerId) {
-      const players = await db.select().from(auctionPlayers)
-        .where(eq(auctionPlayers.id, state.currentPlayerId));
-      if (players.length > 0) {
-        currentPlayer = players[0];
-      }
+      const auctionPlayerList = await db.select().from(auctionPlayers).where(eq(auctionPlayers.id, state.currentPlayerId));
+      currentPlayer = auctionPlayerList[0] || null;
     }
 
-    // Get highest bidder team name
-    let highestBidderName = null;
-    if (state.highestBidderId) {
-      const teamResults = await db.select().from(teams)
-        .where(eq(teams.ownerId, state.highestBidderId));
-      if (teamResults.length > 0) {
-        highestBidderName = teamResults[0].name;
-      }
+    // Get current round details
+    let currentRound = null;
+    if (state.currentRoundId) {
+      const rounds = await db.select().from(auctionRounds).where(eq(auctionRounds.id, state.currentRoundId));
+      currentRound = rounds[0] || null;
     }
 
-    // Calculate remaining time properly
+    // Get all teams for purse display with player counts
+    const allTeams = await db.select().from(teams);
+    const allPlayers = await db.select().from(players);
+    
+    const teamsWithCount = allTeams.map(team => ({
+      ...team,
+      playerCount: allPlayers.filter(p => p.teamId === team.id).length,
+    }));
+
+    // Get pending players count for current round
+    let pendingPlayers: any[] = [];
+    if (state.currentRoundId) {
+      pendingPlayers = await db.select()
+        .from(auctionPlayers)
+        .where(eq(auctionPlayers.roundId, state.currentRoundId));
+    }
+
+    // Get recent logs
+    const recentLogs = await db.select()
+      .from(auctionLogs)
+      .orderBy(desc(auctionLogs.id))
+      .limit(10);
+
+    // Calculate remaining time with robust type handling
     let remainingTime = 0;
-    const timerEndTime = state.timerEndTime ? Number(state.timerEndTime) : 0;
-    
-    if (state.isActive && timerEndTime > 0) {
-      if (state.isPaused) {
-        // When paused, timerEndTime stores remaining milliseconds directly
-        // But we need to check if it's a reasonable value (not a timestamp)
-        if (timerEndTime < 100000) {
-          // It's stored as milliseconds remaining
-          remainingTime = Math.max(0, Math.ceil(timerEndTime / 1000));
-        } else {
-          // It's a timestamp - calculate remaining time from when it was paused
-          // This shouldn't happen with our new logic, default to 12s
-          remainingTime = BID_INCREMENT_TIME;
+    if (state.isActive && state.timerEndTime) {
+      const timerEnd = Number(state.timerEndTime);
+      const now = Date.now();
+      
+      if (state.isPaused && state.pausedTimeRemaining) {
+        // When paused, show the remaining time that was stored
+        remainingTime = Math.ceil(Number(state.pausedTimeRemaining) / 1000);
+      } else if (state.isPaused) {
+        // Fallback if no pausedTimeRemaining stored
+        remainingTime = 12;
+      } else if (!isNaN(timerEnd) && timerEnd > 0) {
+        // Check if it's a valid timestamp in milliseconds (13+ digits, within reasonable range)
+        if (timerEnd > 1000000000000 && timerEnd < 2000000000000) {
+          // Valid millisecond timestamp
+          remainingTime = Math.max(0, Math.floor((timerEnd - now) / 1000));
+        } else if (timerEnd > 1000000000 && timerEnd < 2000000000) {
+          // Looks like seconds timestamp, convert to ms calculation
+          remainingTime = Math.max(0, Math.floor((timerEnd * 1000 - now) / 1000));
         }
-      } else {
-        // When active, timerEndTime is the Unix timestamp when auction ends
-        const now = Date.now();
-        remainingTime = Math.max(0, Math.ceil((timerEndTime - now) / 1000));
+        // Cap at reasonable max (60 seconds)
+        remainingTime = Math.min(60, remainingTime);
       }
     }
 
-    // Ensure remainingTime is a valid number
-    if (!Number.isFinite(remainingTime) || remainingTime < 0) {
-      remainingTime = 0;
-    }
-    
-    // Cap at maximum reasonable value
-    if (remainingTime > BID_INCREMENT_TIME) {
-      remainingTime = BID_INCREMENT_TIME;
+    // Get last sale from logs
+    let lastSale = null;
+    const saleLog = recentLogs.find(log => log.logType === 'sale');
+    if (saleLog) {
+      // Parse the sale log message: "Player Name sold to Team for $Amount"
+      const match = saleLog.message.match(/(.+) sold to (.+) for \$(.+)/);
+      if (match) {
+        lastSale = {
+          playerName: match[1],
+          teamName: match[2],
+          amount: parseFloat(match[3].replace(/,/g, '')),
+        };
+      }
     }
 
     return NextResponse.json({
-      isActive: state.isActive,
-      currentPlayerId: state.currentPlayerId,
+      ...state,
       currentPlayer,
-      currentBid: state.currentBid || 0,
-      highestBidderId: state.highestBidderId,
-      highestBidderName,
+      currentRound,
+      teams: teamsWithCount,
+      pendingPlayers: pendingPlayers.filter(p => p.status === 'pending'),
+      recentLogs,
       remainingTime,
-      isPaused: state.isPaused,
-      roundId: state.roundId
+      lastSale,
     });
   } catch (error) {
     console.error('Error fetching auction state:', error);
