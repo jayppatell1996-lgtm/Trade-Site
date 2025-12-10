@@ -6,10 +6,10 @@ import { eq } from 'drizzle-orm';
 // Next.js 16+ requires params to be awaited
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ roundId: string }> }  // <-- Promise type
+  { params }: { params: Promise<{ roundId: string }> }
 ) {
   try {
-    const { roundId } = await params;  // <-- await params
+    const { roundId } = await params;
     
     const players = await db.select()
       .from(auctionPlayers)
