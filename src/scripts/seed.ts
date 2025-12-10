@@ -10,10 +10,7 @@ import {
 } from '../db/schema';
 import { eq } from 'drizzle-orm';
 
-// Load environment variables
-import * as dotenv from 'dotenv';
-dotenv.config({ path: '.env.local' });
-
+// Environment variables are loaded by Next.js or need to be set in shell
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
   authToken: process.env.TURSO_AUTH_TOKEN,

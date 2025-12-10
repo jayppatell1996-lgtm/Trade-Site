@@ -76,11 +76,7 @@ interface AuctionSummary {
   averageBid: number;
   playersRemaining: number;
   playersUnsold: number;
-  highestSale?: {
-    playerName: string;
-    teamName: string;
-    amount: number;
-  };
+  highestSale: SaleHistory | null;
   teamSpending?: Array<{
     teamName: string;
     playersBought: number;
@@ -713,7 +709,7 @@ export default function AuctionPage() {
                     <div className="text-gray-400">Bought by {logsData.summary.highestSale.teamName}</div>
                   </div>
                   <div className="text-3xl font-bold text-yellow-400">
-                    {formatFullCurrency(logsData.summary.highestSale.amount)}
+                    {formatFullCurrency(logsData.summary.highestSale.winningBid)}
                   </div>
                 </div>
               </div>
