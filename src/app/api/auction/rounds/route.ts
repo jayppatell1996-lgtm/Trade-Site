@@ -41,6 +41,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { roundNumber, name, players: playersData } = body;
 
+    // Helper to generate player ID from name
+    const generatePlayerId = (playerName: string): string => {
+      return playerName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+    };
+
     // Create the round
     const newRound = await db.insert(auctionRounds).values({
       roundNumber,
@@ -51,15 +61,20 @@ export async function POST(request: NextRequest) {
 
     // Add players to the round
     if (playersData && playersData.length > 0) {
-      const playerInserts = playersData.map((player: any, index: number) => ({
-        roundId: newRound[0].id,
-        playerId: player.player_id || player.playerId || null,
-        name: player.name,
-        category: player.category,
-        basePrice: player.base_price || player.basePrice,
-        status: 'pending',
-        orderIndex: index,
-      }));
+      const playerInserts = playersData.map((player: any, index: number) => {
+        const playerId = player.player_id || player.playerId || generatePlayerId(player.name);
+        // Debug: Log what player_id we're using
+        console.log(`Adding player to round: name=${player.name}, player_id from JSON=${player.player_id}, playerId from JSON=${player.playerId}, using=${playerId}`);
+        return {
+          roundId: newRound[0].id,
+          playerId: playerId,
+          name: player.name,
+          category: player.category,
+          basePrice: player.base_price || player.basePrice,
+          status: 'pending',
+          orderIndex: index,
+        };
+      });
 
       await db.insert(auctionPlayers).values(playerInserts);
     }

@@ -66,8 +66,16 @@ export async function POST(request: NextRequest) {
       .set({ purse: winningTeam.purse - (state.currentBid || 0) })
       .where(eq(teams.id, winningTeam.id));
 
-    // Add player to team roster
-    const playerIdToUse = currentPlayer.playerId || `auction-${Date.now()}`;
+    // Add player to team roster - generate player ID from name if not available
+    const generatePlayerId = (playerName: string): string => {
+      return playerName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+    };
+    const playerIdToUse = currentPlayer.playerId || generatePlayerId(currentPlayer.name);
     await db.insert(players).values({
       playerId: playerIdToUse,
       name: currentPlayer.name,

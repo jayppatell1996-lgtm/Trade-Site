@@ -98,6 +98,14 @@ async function finalizeSale(
       return { success: false, message: 'Player not found' };
     }
 
+    // Debug: Log the player data to see what playerId is
+    console.log('Finalizing sale - Player data:', {
+      id: currentPlayer.id,
+      name: currentPlayer.name,
+      playerId: currentPlayer.playerId,
+      category: currentPlayer.category,
+    });
+
     // Get the winning team
     const winningTeamArr = await db.select()
       .from(teams)
@@ -128,8 +136,25 @@ async function finalizeSale(
       .set({ purse: winningTeam.purse - currentBid })
       .where(eq(teams.id, winningTeam.id));
 
-    // Add player to team roster
-    const playerIdToUse = currentPlayer.playerId || `auction-${Date.now()}`;
+    // Add player to team roster - generate player ID from name if not available
+    const generatePlayerId = (playerName: string): string => {
+      return playerName
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+    };
+    const playerIdToUse = currentPlayer.playerId || generatePlayerId(currentPlayer.name);
+    
+    // Debug: Log what playerId we're using
+    console.log('Inserting sold player:', {
+      playerIdFromAuction: currentPlayer.playerId,
+      playerIdToUse: playerIdToUse,
+      name: currentPlayer.name,
+      teamId: winningTeam.id,
+    });
+    
     await db.insert(players).values({
       playerId: playerIdToUse,
       name: currentPlayer.name,

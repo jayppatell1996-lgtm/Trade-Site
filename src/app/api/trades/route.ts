@@ -5,6 +5,54 @@ import { db } from '@/db';
 import { trades, teams, players } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
+// Discord webhook for trade notifications
+async function sendTradeNotification(
+  team1Name: string,
+  team2Name: string,
+  players1: string[],
+  players2: string[]
+) {
+  const webhookUrl = process.env.DISCORD_TRADE_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.log('No Discord webhook URL configured for trades');
+    return;
+  }
+
+  try {
+    const embed = {
+      title: '🔄 Trade Completed!',
+      color: 0x00d4aa, // Accent green color
+      fields: [
+        {
+          name: `📤 ${team1Name} sends`,
+          value: players1.length > 0 ? players1.join('\n') : 'No players',
+          inline: true,
+        },
+        {
+          name: `📥 ${team2Name} sends`,
+          value: players2.length > 0 ? players2.join('\n') : 'No players',
+          inline: true,
+        },
+      ],
+      footer: {
+        text: 'Wispbyte League Trade Center',
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [embed],
+      }),
+    });
+    console.log('Trade notification sent to Discord');
+  } catch (error) {
+    console.error('Failed to send trade notification:', error);
+  }
+}
+
 export async function GET() {
   try {
     const allTrades = await db.select().from(trades).orderBy(trades.id);
@@ -64,6 +112,9 @@ export async function POST(request: NextRequest) {
       players1: JSON.stringify(players1),
       players2: JSON.stringify(players2),
     }).returning();
+
+    // Send Discord notification
+    await sendTradeNotification(team1Name, team2Name, players1, players2);
 
     return NextResponse.json(newTrade[0]);
   } catch (error) {

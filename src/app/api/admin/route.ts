@@ -131,11 +131,21 @@ export async function POST(request: NextRequest) {
           roundId = newRound[0].id;
         }
 
+        // Helper function to generate player ID from name
+        const generatePlayerId = (playerName: string): string => {
+          return playerName
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '') // Remove special chars except spaces and hyphens
+            .trim()
+            .replace(/\s+/g, '-') // Replace spaces with hyphens
+            .replace(/-+/g, '-'); // Remove consecutive hyphens
+        };
+
         // Add players
         if (playersData && playersData.length > 0) {
           const playerInserts = playersData.map((player: any, index: number) => ({
             roundId,
-            playerId: player.player_id || player.playerId || null,
+            playerId: player.player_id || player.playerId || generatePlayerId(player.name),
             name: player.name,
             category: player.category,
             basePrice: player.base_price || player.basePrice,
