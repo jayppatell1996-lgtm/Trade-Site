@@ -272,7 +272,7 @@ async function handleBid(discordId: string, teamId: number) {
     return NextResponse.json({ error: 'No active auction' }, { status: 400 });
   }
 
-  if (state.status === 'paused') {
+  if ((state.status as string) === 'paused') {
     return NextResponse.json({ error: 'Auction is paused' }, { status: 400 });
   }
 
