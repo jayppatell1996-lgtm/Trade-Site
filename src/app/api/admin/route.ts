@@ -39,11 +39,23 @@ export async function POST(request: NextRequest) {
             await db.delete(players).where(eq(players.teamId, existing[0].id));
             
             if (teamInfo.players && teamInfo.players.length > 0) {
-              const playerInserts = teamInfo.players.map((playerName: string) => ({
-                playerId: `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: playerName,
-                teamId: existing[0].id,
-              }));
+              const playerInserts = teamInfo.players.map((player: any) => {
+                // Handle both object format and string format
+                if (typeof player === 'string') {
+                  return {
+                    playerId: `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: player,
+                    teamId: existing[0].id,
+                  };
+                } else {
+                  return {
+                    playerId: player.player_id || player.playerId || `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: player.name,
+                    teamId: existing[0].id,
+                    category: player.category,
+                  };
+                }
+              });
               await db.insert(players).values(playerInserts);
             }
           } else {
@@ -56,11 +68,22 @@ export async function POST(request: NextRequest) {
             }).returning();
 
             if (teamInfo.players && teamInfo.players.length > 0) {
-              const playerInserts = teamInfo.players.map((playerName: string) => ({
-                playerId: `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: playerName,
-                teamId: newTeam[0].id,
-              }));
+              const playerInserts = teamInfo.players.map((player: any) => {
+                if (typeof player === 'string') {
+                  return {
+                    playerId: `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: player,
+                    teamId: newTeam[0].id,
+                  };
+                } else {
+                  return {
+                    playerId: player.player_id || player.playerId || `import-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: player.name,
+                    teamId: newTeam[0].id,
+                    category: player.category,
+                  };
+                }
+              });
               await db.insert(players).values(playerInserts);
             }
           }
@@ -131,11 +154,11 @@ export async function POST(request: NextRequest) {
       }
 
       case 'add_player': {
-        // Add player to team
-        const { teamId, playerName, category } = data;
+        // Add player to team with manual player ID
+        const { teamId, playerId, playerName, category } = data;
 
         await db.insert(players).values({
-          playerId: `manual-${Date.now()}`,
+          playerId: playerId || `manual-${Date.now()}`,
           name: playerName,
           teamId,
           category,

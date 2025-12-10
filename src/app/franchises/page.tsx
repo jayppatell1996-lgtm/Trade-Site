@@ -9,92 +9,74 @@ export default async function FranchisesPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Franchises</h1>
-        <p className="text-gray-400">View all teams, rosters, and remaining purse</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">League Franchises</h1>
+          <p className="text-gray-400">View active rosters and contracts.</p>
+        </div>
+        <div className="relative">
+          <input
+            type="text"
+            placeholder="Search teams or players..."
+            className="input pl-10 w-64"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {allTeams.map((team) => {
           const teamPlayers = allPlayers.filter(p => p.teamId === team.id);
-          const rosterPercent = (teamPlayers.length / team.maxSize) * 100;
           
           return (
             <div key={team.id} className="card">
               {/* Team Header */}
-              <div className="flex items-center justify-between mb-4 pb-4 border-b border-border">
-                <div>
-                  <h2 className="text-xl font-bold text-accent">{team.name}</h2>
-                  {team.ownerName && (
-                    <p className="text-sm text-gray-400">Owner: {team.ownerName}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold font-mono text-accent">
-                    ${(team.purse / 1000000).toFixed(2)}M
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
+                    <span className="text-accent font-bold text-sm">{team.name}</span>
                   </div>
-                  <div className="text-xs text-gray-500">Remaining Purse</div>
+                  <div>
+                    <h2 className="font-bold">{team.name}</h2>
+                    <p className="text-xs text-gray-500">ID: {team.ownerId}</p>
+                  </div>
+                </div>
+                <div className="bg-accent text-black text-xs font-bold px-2 py-1 rounded">
+                  {teamPlayers.length}/{team.maxSize}
                 </div>
               </div>
 
-              {/* Roster Progress */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-gray-400">Roster</span>
-                  <span className="font-mono">{teamPlayers.length}/{team.maxSize}</span>
-                </div>
-                <div className="w-full bg-background rounded-full h-2">
-                  <div 
-                    className={`h-2 rounded-full transition-all ${
-                      rosterPercent >= 90 ? 'bg-red-500' :
-                      rosterPercent >= 70 ? 'bg-yellow-500' :
-                      'bg-accent'
-                    }`}
-                    style={{ width: `${rosterPercent}%` }}
-                  />
+              {/* Purse Display */}
+              <div className="bg-surface-light rounded-lg p-3 mb-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-400">Remaining Purse</span>
+                  <span className="text-lg font-bold text-accent font-mono">
+                    ${(team.purse / 1000000).toFixed(2)}M
+                  </span>
                 </div>
               </div>
 
               {/* Players List */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-400 mb-2">Players</h3>
-                {teamPlayers.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {teamPlayers.map((player) => (
-                      <div 
-                        key={player.id} 
-                        className="px-3 py-1 bg-surface-light rounded-full text-sm flex items-center gap-2"
-                      >
-                        <span>{player.name}</span>
-                        {player.boughtFor && (
-                          <span className="text-xs text-accent font-mono">
-                            ${(player.boughtFor / 1000000).toFixed(1)}M
-                          </span>
-                        )}
-                      </div>
-                    ))}
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {teamPlayers.map((player, index) => (
+                  <div 
+                    key={player.id} 
+                    className="flex items-center justify-between p-2 bg-surface-light rounded-lg hover:bg-surface transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500 text-sm w-4">{index + 1}</span>
+                      <span className="font-medium">{player.name}</span>
+                    </div>
+                    <span className="text-xs text-gray-500 font-mono bg-surface px-2 py-1 rounded">
+                      {player.playerId}
+                    </span>
                   </div>
-                ) : (
-                  <p className="text-gray-500 text-sm">No players yet</p>
+                ))}
+                {teamPlayers.length === 0 && (
+                  <p className="text-gray-500 text-sm text-center py-4">No players yet</p>
                 )}
-              </div>
-
-              {/* Stats */}
-              <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-border">
-                <div className="text-center">
-                  <div className="text-lg font-bold">{teamPlayers.length}</div>
-                  <div className="text-xs text-gray-500">Players</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold">{team.maxSize - teamPlayers.length}</div>
-                  <div className="text-xs text-gray-500">Slots Left</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-lg font-bold font-mono">
-                    ${(team.purse / 1000000).toFixed(1)}M
-                  </div>
-                  <div className="text-xs text-gray-500">Budget</div>
-                </div>
               </div>
             </div>
           );
@@ -108,6 +90,11 @@ export default async function FranchisesPage() {
           <p className="text-gray-400">Teams will appear here once created by admins.</p>
         </div>
       )}
+
+      {/* Footer */}
+      <div className="text-center text-sm text-gray-500 pt-8">
+        Built for Wispbyte Server. Powered by Discord.
+      </div>
     </div>
   );
 }

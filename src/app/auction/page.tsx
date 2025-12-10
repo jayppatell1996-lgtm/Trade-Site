@@ -69,6 +69,7 @@ export default function AuctionPage() {
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
   const userTeam = state?.teams.find(t => t.ownerId === session?.user?.discordId);
+  const isTeamOwner = !!userTeam;
 
   const fetchState = useCallback(async () => {
     try {
@@ -243,14 +244,14 @@ export default function AuctionPage() {
                 </div>
               </div>
 
-              {/* Bid Button (for team owners) */}
-              {session && userTeam && !isAdmin && (
+              {/* Bid Button - Show for ALL team owners (including admins who own teams) */}
+              {session && isTeamOwner && (
                 <button
                   onClick={placeBid}
                   disabled={actionLoading || state.isPaused}
-                  className="btn-primary w-full text-xl py-4 disabled:opacity-50"
+                  className="btn-primary w-full text-xl py-4 disabled:opacity-50 mb-4"
                 >
-                  {actionLoading ? 'Placing Bid...' : '💰 Place Bid'}
+                  {actionLoading ? 'Placing Bid...' : `💰 Place Bid (${userTeam?.name})`}
                 </button>
               )}
 

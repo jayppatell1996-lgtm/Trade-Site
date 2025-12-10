@@ -16,6 +16,7 @@ interface Team {
 
 interface Player {
   id: number;
+  playerId: string;
   name: string;
   teamId: number;
   category: string | null;
@@ -51,7 +52,7 @@ export default function AdminPage() {
 
   // Edit states
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [newPlayer, setNewPlayer] = useState({ teamId: 0, name: '', category: '' });
+  const [newPlayer, setNewPlayer] = useState({ teamId: 0, playerId: '', name: '', category: '' });
 
   // Upload states
   const [uploadType, setUploadType] = useState<'teams' | 'round' | 'unsold'>('teams');
@@ -98,7 +99,6 @@ export default function AdminPage() {
       if (file.name.endsWith('.json')) {
         setFileContent(content);
       } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls') || file.name.endsWith('.csv')) {
-        // For spreadsheets, we'll parse on the server or use a library
         setMessage({ type: 'error', text: 'Spreadsheet parsing coming soon. Please use JSON format.' });
       }
     };
@@ -179,8 +179,8 @@ export default function AdminPage() {
   };
 
   const addPlayer = async () => {
-    if (!newPlayer.teamId || !newPlayer.name) {
-      setMessage({ type: 'error', text: 'Please fill in all fields' });
+    if (!newPlayer.teamId || !newPlayer.name || !newPlayer.playerId) {
+      setMessage({ type: 'error', text: 'Please fill in Team, Player ID, and Name' });
       return;
     }
 
@@ -192,6 +192,7 @@ export default function AdminPage() {
           action: 'add_player',
           data: {
             teamId: newPlayer.teamId,
+            playerId: newPlayer.playerId,
             playerName: newPlayer.name,
             category: newPlayer.category,
           },
@@ -200,7 +201,7 @@ export default function AdminPage() {
 
       if (res.ok) {
         setMessage({ type: 'success', text: 'Player added' });
-        setNewPlayer({ teamId: 0, name: '', category: '' });
+        setNewPlayer({ teamId: 0, playerId: '', name: '', category: '' });
         fetchData();
       }
     } catch (error) {
@@ -385,7 +386,7 @@ export default function AdminPage() {
             {/* Add Player */}
             <div className="bg-surface-light rounded-lg p-4 mb-4">
               <h3 className="font-medium mb-3">Add Player</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <select
                   value={newPlayer.teamId}
                   onChange={e => setNewPlayer({ ...newPlayer, teamId: parseInt(e.target.value) })}
@@ -398,14 +399,21 @@ export default function AdminPage() {
                 </select>
                 <input
                   type="text"
-                  placeholder="Player Name"
+                  placeholder="Player ID *"
+                  value={newPlayer.playerId}
+                  onChange={e => setNewPlayer({ ...newPlayer, playerId: e.target.value })}
+                  className="input"
+                />
+                <input
+                  type="text"
+                  placeholder="Player Name *"
                   value={newPlayer.name}
                   onChange={e => setNewPlayer({ ...newPlayer, name: e.target.value })}
                   className="input"
                 />
                 <input
                   type="text"
-                  placeholder="Category (optional)"
+                  placeholder="Category"
                   value={newPlayer.category}
                   onChange={e => setNewPlayer({ ...newPlayer, category: e.target.value })}
                   className="input"
@@ -425,6 +433,7 @@ export default function AdminPage() {
                       {teamPlayers.map(player => (
                         <div key={player.id} className="flex items-center gap-2 bg-surface px-3 py-1 rounded-full text-sm">
                           <span>{player.name}</span>
+                          <span className="text-xs text-gray-500 font-mono">({player.playerId})</span>
                           <button
                             onClick={() => removePlayer(player.id)}
                             className="text-red-400 hover:text-red-300"
@@ -585,7 +594,10 @@ export default function AdminPage() {
       "owner": "1127099249226690652",
       "max_size": 20,
       "purse": 50000000,
-      "players": ["Player 1", "Player 2"]
+      "players": [
+        { "name": "Player 1", "player_id": "abc123" },
+        { "name": "Player 2", "player_id": "def456" }
+      ]
     }
   }
 }`}
@@ -597,6 +609,7 @@ export default function AdminPage() {
   "players_for_auction": [
     {
       "name": "Player Name",
+      "player_id": "xyz789",
       "category": "Batsman",
       "base_price": 500000
     }
@@ -610,6 +623,7 @@ export default function AdminPage() {
   "unsold": [
     {
       "name": "Player Name",
+      "player_id": "abc123",
       "category": "Bowler",
       "base_price": 100000
     }
