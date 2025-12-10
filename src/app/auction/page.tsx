@@ -324,11 +324,12 @@ export default function AuctionPage() {
   // Watch for timer expiry - trigger when timer reaches 0
   useEffect(() => {
     // Check if we should trigger timer expiry
+    // Use -0.5 buffer to ensure last-second bids can go through
     const shouldExpire = 
       state?.isActive && 
       state?.currentPlayerId && 
       !state?.isPaused && 
-      displayTimer <= 0 && // Timer has hit 0
+      displayTimer <= -0.5 && // Small buffer past 0 to allow last-second bids
       !timerExpiredRef.current &&
       !waitingForNext;
     
@@ -476,21 +477,9 @@ export default function AuctionPage() {
     }
   };
 
+  // Format money display
   const formatMoney = (amount: number) => {
     return `$${(amount / 1000000).toFixed(2)}M`;
-  };
-
-  // Calculate smooth progress bar percentage
-  const getTimerProgress = () => {
-    const maxTime = INITIAL_TIMER;
-    return Math.max(0, Math.min(100, (displayTimer / maxTime) * 100));
-  };
-
-  // Get timer color based on remaining time
-  const getTimerColor = () => {
-    if (displayTimer <= 3) return 'bg-red-500';
-    if (displayTimer <= 6) return 'bg-yellow-500';
-    return 'bg-accent';
   };
 
   if (loading) {
@@ -697,22 +686,16 @@ export default function AuctionPage() {
                 )}
               </div>
 
-              {/* Timer Bar - Smooth animation */}
-              <div className="mb-6">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-400">Time Remaining</span>
-                  <span className={`font-mono font-bold ${
-                    displayTimer <= 3 ? 'text-red-400' : displayTimer <= 6 ? 'text-yellow-400' : 'text-accent'
-                  }`}>
-                    {Math.max(0, Math.ceil(displayTimer))}s
-                  </span>
+              {/* Big Timer Display */}
+              <div className="mb-6 text-center">
+                <div className={`text-8xl font-bold font-mono tabular-nums ${
+                  displayTimer <= 3 ? 'text-red-500 animate-pulse' : 
+                  displayTimer <= 6 ? 'text-yellow-400' : 
+                  'text-accent'
+                }`}>
+                  {Math.max(0, Math.ceil(displayTimer))}
                 </div>
-                <div className="w-full bg-surface rounded-full h-4 overflow-hidden">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-100 ease-linear ${getTimerColor()}`}
-                    style={{ width: `${getTimerProgress()}%` }}
-                  />
-                </div>
+                <div className="text-gray-400 text-sm mt-1">seconds remaining</div>
               </div>
 
               {/* Bid Info */}
