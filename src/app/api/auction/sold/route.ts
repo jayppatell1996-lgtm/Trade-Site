@@ -1,157 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { auctionState, auctionPlayers, auctionLogs, teams, players } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-
-const ADMIN_IDS = ['256972361918578688', '1111497896018313268'];
+import { authOptions, ADMIN_IDS } from '@/lib/auth';
+import { db } from '@/db';
+import { auctionState, auctionPlayers, teams, players, auctionLogs } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id || !ADMIN_IDS.includes(session.user.id)) {
+    
+    // Use discordId, not id
+    if (!session?.user?.discordId || !ADMIN_IDS.includes(session.user.discordId)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get current auction state
-    const states = await db.select().from(auctionState).limit(1);
-    if (states.length === 0 || !states[0].isActive) {
+    const states = await db.select().from(auctionState);
+    const state = states[0];
+
+    if (!state || !state.isActive || !state.currentPlayerId) {
       return NextResponse.json({ error: 'No active auction' }, { status: 400 });
     }
 
-    const state = states[0];
-
-    // Must have a highest bidder to sell
     if (!state.highestBidderId) {
-      return NextResponse.json({ error: 'No bids placed' }, { status: 400 });
+      return NextResponse.json({ error: 'No bids to finalize' }, { status: 400 });
     }
 
-    // Get the player being auctioned
-    if (!state.currentPlayerId) {
-      return NextResponse.json({ error: 'No player being auctioned' }, { status: 400 });
-    }
-
-    const auctionPlayerResults = await db.select().from(auctionPlayers)
+    // Get current player
+    const currentPlayers = await db.select()
+      .from(auctionPlayers)
       .where(eq(auctionPlayers.id, state.currentPlayerId));
-    
-    if (auctionPlayerResults.length === 0) {
-      return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+
+    const currentPlayer = currentPlayers[0];
+    if (!currentPlayer) {
+      return NextResponse.json({ error: 'Player not found' }, { status: 400 });
     }
 
-    const auctionPlayer = auctionPlayerResults[0];
-
-    // Get the winning team
-    const winningTeams = await db.select().from(teams)
+    // Get winning team
+    const winningTeams = await db.select()
+      .from(teams)
       .where(eq(teams.ownerId, state.highestBidderId));
-    
-    if (winningTeams.length === 0) {
-      return NextResponse.json({ error: 'Winning team not found' }, { status: 404 });
-    }
 
     const winningTeam = winningTeams[0];
-    const salePrice = state.currentBid;
-
-    // Check team has enough purse
-    if (winningTeam.purse < salePrice) {
-      return NextResponse.json({ error: 'Insufficient funds' }, { status: 400 });
+    if (!winningTeam) {
+      return NextResponse.json({ error: 'Winning team not found' }, { status: 400 });
     }
 
-    // Parse current team players
-    let teamPlayers: Array<{id: number, name: string, category?: string, purchasePrice?: number}> = [];
-    try {
-      teamPlayers = winningTeam.players ? JSON.parse(winningTeam.players) : [];
-    } catch {
-      teamPlayers = [];
+    // Check purse
+    if (winningTeam.purse < (state.currentBid || 0)) {
+      return NextResponse.json({ error: 'Winner has insufficient funds' }, { status: 400 });
     }
 
-    // Check team size
-    if (teamPlayers.length >= (winningTeam.maxSize || 20)) {
-      return NextResponse.json({ error: 'Team is full' }, { status: 400 });
-    }
-
-    // Add player to team WITH their player ID from auction round
-    // The auctionPlayer.playerId is the original player ID if it was imported with one
-    const playerEntry = {
-      id: auctionPlayer.playerId || auctionPlayer.id, // Use original playerId if available
-      auctionPlayerId: auctionPlayer.id, // Also store the auction player ID
-      name: auctionPlayer.name,
-      category: auctionPlayer.category,
-      purchasePrice: salePrice,
-      purchasedAt: new Date().toISOString(),
-      roundId: state.roundId
-    };
-
-    teamPlayers.push(playerEntry);
-
-    // Update team: add player, deduct purse
-    await db.update(teams)
+    // Update player as sold
+    await db.update(auctionPlayers)
       .set({
-        players: JSON.stringify(teamPlayers),
-        purse: winningTeam.purse - salePrice
+        status: 'sold',
+        soldTo: winningTeam.name,
+        soldFor: state.currentBid,
+        soldAt: new Date().toISOString(),
       })
+      .where(eq(auctionPlayers.id, state.currentPlayerId));
+
+    // Deduct from team purse
+    await db.update(teams)
+      .set({ purse: winningTeam.purse - (state.currentBid || 0) })
       .where(eq(teams.id, winningTeam.id));
 
-    // Mark auction player as sold
-    await db.update(auctionPlayers)
-      .set({ 
-        status: 'sold',
-        soldTo: winningTeam.id,
-        soldPrice: salePrice
-      })
-      .where(eq(auctionPlayers.id, auctionPlayer.id));
-
-    // Also add to the main players table if it exists
-    try {
-      await db.insert(players).values({
-        name: auctionPlayer.name,
-        teamId: winningTeam.id,
-        category: auctionPlayer.category,
-        purchasePrice: salePrice
-      }).onConflictDoNothing();
-    } catch (e) {
-      // Players table might have different schema, ignore errors
-      console.log('Could not insert into players table:', e);
-    }
+    // Add player to team roster
+    const playerIdToUse = currentPlayer.playerId || `auction-${Date.now()}`;
+    await db.insert(players).values({
+      playerId: playerIdToUse,
+      name: currentPlayer.name,
+      teamId: winningTeam.id,
+      category: currentPlayer.category,
+      boughtFor: state.currentBid,
+    });
 
     // Log the sale
     await db.insert(auctionLogs).values({
-      eventType: 'sale',
-      playerId: auctionPlayer.id,
-      playerName: auctionPlayer.name,
-      teamId: winningTeam.id,
-      teamName: winningTeam.name,
-      userId: state.highestBidderId,
-      amount: salePrice,
-      roundId: state.roundId,
-      timestamp: new Date()
+      roundId: state.currentRoundId,
+      message: `${currentPlayer.name} sold to ${winningTeam.name} for $${(state.currentBid || 0).toLocaleString()}`,
+      logType: 'sale',
+      timestamp: new Date().toISOString(),
     });
 
-    // Reset auction state
+    // Update auction state - waiting for next
     await db.update(auctionState)
       .set({
-        isActive: false,
+        isActive: true,
         currentPlayerId: null,
         currentBid: 0,
         highestBidderId: null,
-        timerEndTime: 0,
-        isPaused: false
+        highestBidderTeam: null,
+        timerEndTime: null,
+        pausedTimeRemaining: null,
+        lastUpdated: new Date().toISOString(),
       })
       .where(eq(auctionState.id, state.id));
 
-    return NextResponse.json({ 
-      success: true, 
-      sale: {
-        playerName: auctionPlayer.name,
-        playerId: playerEntry.id,
-        teamName: winningTeam.name,
-        amount: salePrice,
-        newPurse: winningTeam.purse - salePrice
-      }
+    return NextResponse.json({
+      success: true,
+      message: `${currentPlayer.name} sold to ${winningTeam.name} for $${(state.currentBid || 0).toLocaleString()}!`,
+      playerName: currentPlayer.name,
+      teamName: winningTeam.name,
+      amount: state.currentBid,
     });
-
   } catch (error) {
-    console.error('Sold error:', error);
-    return NextResponse.json({ error: 'Server error' }, { status: 500 });
+    console.error('Error in sold route:', error);
+    return NextResponse.json({ error: 'Failed to finalize sale' }, { status: 500 });
   }
 }
