@@ -1,5 +1,31 @@
 # Auction Timer Fixes
 
+## ⚠️ IMPORTANT: Merge Instructions
+
+**DO NOT blindly replace your existing `src/lib/` folder!**
+
+Your project already has `src/lib/db/index.ts` and `src/lib/auth.ts`. The files I've provided are examples that should work, but you may need to:
+
+1. **Keep your existing `src/lib/db/index.ts`** - it already has your Turso connection
+2. **Keep your existing `src/lib/auth.ts`** - it already has your Discord OAuth setup
+3. **Only add to `src/lib/db/schema.ts`** - add the `playerId` field to `auctionPlayers` if it's not there
+
+**Files to REPLACE:**
+- `src/app/auction/page.tsx`
+- `src/app/api/auction/state/route.ts`
+- `src/app/api/auction/control/route.ts`
+- `src/app/api/auction/bid/route.ts`
+- `src/app/api/auction/sold/route.ts`
+- `src/app/api/auction/rounds/route.ts`
+- `src/app/api/auction/rounds/[roundId]/players/route.ts`
+
+**Files to MERGE (don't replace):**
+- `src/lib/db/schema.ts` - add `playerId` column to your existing schema
+- `src/lib/db/index.ts` - keep your existing one
+- `src/lib/auth.ts` - keep your existing one
+
+---
+
 ## Issues Fixed
 
 ### 1. Timer Showing Huge Number (1765353084s)
