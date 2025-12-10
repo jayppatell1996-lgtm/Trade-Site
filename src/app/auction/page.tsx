@@ -517,9 +517,21 @@ export default function AuctionPage() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
-              onClick={() => {
+              onClick={async () => {
+                // Clear round on server first
+                try {
+                  await fetch('/api/auction/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'clear_round' }),
+                  });
+                } catch (e) {
+                  console.error('Error clearing round:', e);
+                }
+                // Then clear local state
                 setRoundCompleted(false);
                 setSelectedRound(null);
+                setWaitingForNext(false);
               }}
               className="btn-primary"
             >

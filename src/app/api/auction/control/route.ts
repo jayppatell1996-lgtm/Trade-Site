@@ -579,6 +579,7 @@ export async function POST(request: NextRequest) {
             isActive: false,
             isPaused: false,
             currentPlayerId: null,
+            currentRoundId: null, // Clear round selection
             currentBid: 0,
             highestBidderId: null,
             highestBidderTeam: null,
@@ -592,6 +593,27 @@ export async function POST(request: NextRequest) {
 
         releaseControlLock();
         return NextResponse.json({ success: true, message: 'Round ended', redirect: true });
+      }
+
+      case 'clear_round': {
+        // Clear round selection after round completed - allows selecting new round
+        await db.update(auctionState)
+          .set({
+            isActive: false,
+            isPaused: false,
+            currentPlayerId: null,
+            currentRoundId: null,
+            currentBid: 0,
+            highestBidderId: null,
+            highestBidderTeam: null,
+            timerEndTime: null,
+            pausedTimeRemaining: null,
+            lastUpdated: new Date().toISOString(),
+          })
+          .where(eq(auctionState.id, state.id));
+
+        releaseControlLock();
+        return NextResponse.json({ success: true, message: 'Ready to select new round' });
       }
 
       default:
