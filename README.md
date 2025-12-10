@@ -1,187 +1,125 @@
-# Trade Site Upgrade v2.0
+# The League
 
-A comprehensive cricket league management webapp with live auction system, team management, and trading functionality.
+A fantasy cricket league management webapp with trading, analytics, and roster management.
 
-## 🚀 New Features
+![Dashboard](https://trade-site-teal.vercel.app/)
 
-### 1. **Purse Display on Franchises**
-- Each team now shows remaining purse prominently
-- Roster capacity bars with color coding
-- Expandable player lists with purchase prices
+## Features
 
-### 2. **Full Auction System**
-Matches the Discord bot functionality exactly:
-- **Admin Controls**: Start, Next, Sold, Pause/Resume, Stop
-- **Live Bidding**: Any team owner can bid
-- **Timer System**: 10 seconds initial, 6 seconds after each bid
-- **Bid Increments**: 
-  - $2M+ base → $1M increments
-  - $1M+ base → $500K increments
-  - $500K+ base → $250K increments
-  - Below $500K → increment = base price
-- **Authorization**: Only Discord IDs `256972361918578688` (CT) and `1111497896018313268` (PS) can control the auction
+- 🔐 **Discord Authentication** - Sign in with Discord to verify team ownership
+- 📊 **Dashboard** - Real-time league stats and recent trades
+- 🔄 **Trade Center** - Only accessible to team owners
+- 👥 **Franchises** - View all team rosters
 
-### 3. **Round Selection**
-- 6 auction rounds (+ 1 unsold pool)
-- Select which round to auction from
-- Track progress per round
+## Setup Guide
 
-### 4. **Admin Panel**
-- **Teams Tab**: Edit team owner, purse, max size
-- **Rounds Tab**: View round status, clear players
-- **Import Tab**: Import teams/players from JSON files
-- **Admins Tab**: Manage authorized admins
+### 1. Turso Database (you already have this)
 
-## 📦 Database Tables
+Your existing credentials:
+```
+TURSO_DATABASE_URL=libsql://league-trading-theogmaniac.aws-us-east-2.turso.io
+TURSO_AUTH_TOKEN=your-existing-token
+```
 
-| Table | Purpose |
-|-------|---------|
-| `teams` | Team info with purse |
-| `players` | Players assigned to teams |
-| `trades` | Trade history |
-| `auction_rounds` | 6 rounds + unsold pool |
-| `auction_players` | Players for auction in each round |
-| `auction_state` | Current live auction state |
-| `auction_logs` | Auction activity logs |
-| `auction_history` | Sale history |
-| `authorized_admins` | Who can control auction |
+### 2. Create Discord Application
 
-## 🔧 Setup
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **"New Application"** → name it "Wispbyte League"
+3. Go to **OAuth2** in the sidebar
+4. Copy the **Client ID** and **Client Secret**
+5. Add redirect URLs:
+   - For local: `http://localhost:3000/api/auth/callback/discord`
+   - For Vercel: `https://your-app.vercel.app/api/auth/callback/discord`
 
-### 1. Clone and Install
+### 3. Update Environment Variables
+
+Create/update your `.env` file:
+
+```env
+# Turso (existing)
+TURSO_DATABASE_URL=libsql://league-trading-theogmaniac.aws-us-east-2.turso.io
+TURSO_AUTH_TOKEN=your-existing-token
+
+# Discord OAuth (new)
+DISCORD_CLIENT_ID=your-client-id-from-discord
+DISCORD_CLIENT_SECRET=your-client-secret-from-discord
+
+# NextAuth (new)
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=any-random-string-at-least-32-chars
+```
+
+Generate a random secret:
+```bash
+openssl rand -base64 32
+```
+
+### 4. Install & Run
 
 ```bash
-git clone <your-repo>
-cd trade-site-upgrade
 npm install
-```
-
-### 2. Configure Turso Database
-
-Create a database at [turso.tech](https://turso.tech):
-
-1. Sign up/login
-2. Create database: `trade-site`
-3. Get your database URL and auth token
-
-Create `.env.local`:
-```
-TURSO_DATABASE_URL=libsql://your-database.turso.io
-TURSO_AUTH_TOKEN=your-token-here
-```
-
-### 3. Initialize Database
-
-```bash
-# Push schema to Turso
-npm run db:push
-
-# Seed with initial data (teams, rounds, admins)
-npm run db:seed
-```
-
-### 4. Run Locally
-
-```bash
 npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000)
+### 5. Deploy to Vercel
 
-## 🌐 Deploy to Vercel
+Add these environment variables in Vercel:
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `DISCORD_CLIENT_ID`
+- `DISCORD_CLIENT_SECRET`
+- `NEXTAUTH_URL` = `https://your-app.vercel.app`
+- `NEXTAUTH_SECRET`
 
-1. Push code to GitHub
-2. Import project at [vercel.com](https://vercel.com)
-3. Add environment variables:
-   - `TURSO_DATABASE_URL`
-   - `TURSO_AUTH_TOKEN`
-4. Deploy!
-
-## 📁 Importing Data from Discord Bot
-
-### Import Teams (from auction_data.json)
-
-In the Admin Panel → Import tab:
-1. Select "Teams (from auction_data.json)"
-2. Paste your JSON:
-```json
-{
-  "teams": {
-    "SKR": {
-      "owner": "1127099249226690652",
-      "purse": 50000000,
-      "max_size": 20,
-      "players": ["Ben Stokes", "Virat Kohli"]
-    }
-  }
-}
-```
-
-### Import Auction Players (from Round_1.json, etc.)
-
-1. Select "Auction Players (Round_1.json etc.)"
-2. Select the target round
-3. Paste your JSON:
-```json
-{
-  "players_for_auction": [
-    { "name": "KL Rahul", "category": "Batsman", "base_price": 2000000 },
-    { "name": "Fakhar Zaman", "category": "Batsman", "base_price": 2000000 }
-  ]
-}
-```
-
-## 🔐 Authorization
-
-### Hardcoded Admins (cannot be removed)
-- `256972361918578688` - CT Owner
-- `1111497896018313268` - PS Owner
-
-### Adding More Admins
-Use the Admin Panel → Admins tab to add additional Discord IDs.
-
-## 📱 Pages
-
-| Page | URL | Access |
-|------|-----|--------|
-| Dashboard | `/` | Public |
-| Franchises | `/franchises` | Public |
-| Trade Center | `/trades` | Team Owners |
-| Live Auction | `/auction` | Public (bid = owners only) |
-| Admin Panel | `/admin` | Admins only |
-
-## 🎯 Auction Flow
-
-1. **Admin** goes to `/auction` and logs in with Discord ID
-2. **Admin** selects a round from dropdown
-3. **Admin** clicks **Start** → First player begins auction
-4. **Team Owners** click **Bid** to place bids
-5. Timer counts down (resets on each bid)
-6. **Admin** clicks **Sold** to finalize, or **Next** to skip
-7. Player is added to winning team, purse is deducted
-8. Repeat until round complete
-
-## 📊 Database Commands
-
-```bash
-# Push schema changes
-npm run db:push
-
-# Open visual database editor
-npm run db:studio
-
-# Re-seed database
-npm run db:seed
-```
-
-## 🔄 Migrating from Discord Bot
-
-1. Export your `auction_data.json` from the bot
-2. Use Admin Panel → Import to load teams
-3. Export each `Round_X.json` file
-4. Import players to respective rounds
-5. Your data is now in the webapp!
+**Important:** Update your Discord app's OAuth2 redirect URL to include your Vercel URL.
 
 ---
 
-Built with Next.js, Turso (SQLite), and Tailwind CSS.
+## How Authentication Works
+
+1. Users sign in with Discord
+2. The app gets their Discord User ID
+3. This ID is matched against `ownerId` in the teams table
+4. Only matching team owners can trade those teams' players
+
+### Team Ownership
+
+Your teams have Discord User IDs as owners. For example:
+- **RR** owned by `581514869879078931`
+- **CT** owned by `256972361918578688`
+
+The owner's Discord account must match these IDs to trade.
+
+### Updating Team Ownership
+
+To change who owns a team:
+
+```sql
+-- In Turso dashboard or Drizzle Studio
+UPDATE teams SET owner_id = 'new-discord-user-id' WHERE name = 'RR';
+```
+
+To find a Discord User ID:
+1. Enable Developer Mode in Discord (Settings → Advanced)
+2. Right-click on a user → Copy User ID
+
+---
+
+## File Changes from Original
+
+New files added for authentication:
+```
+src/
+├── lib/auth.ts              # NextAuth config
+├── components/
+│   ├── AuthProvider.tsx     # Session wrapper
+│   └── UserNav.tsx          # Login/logout UI
+├── app/
+│   ├── login/page.tsx       # Login page
+│   └── api/auth/[...nextauth]/route.ts
+```
+
+Modified files:
+- `src/app/layout.tsx` - Added AuthProvider and UserNav
+- `src/app/trade-center/page.tsx` - Auth checks + owner validation
+- `src/app/api/trades/route.ts` - Server-side owner validation
