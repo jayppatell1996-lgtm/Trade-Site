@@ -713,7 +713,7 @@ export default function AuctionPage() {
                     <div className="text-gray-400">Bought by {logsData.summary.highestSale.teamName}</div>
                   </div>
                   <div className="text-3xl font-bold text-yellow-400">
-                    {formatFullCurrency(logsData.summary.highestSale.winningBid)}
+                    {formatFullCurrency(logsData.summary.highestSale.amount)}
                   </div>
                 </div>
               </div>
