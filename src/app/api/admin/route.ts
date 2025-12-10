@@ -18,15 +18,17 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'import_teams': {
-        // Import teams from JSON
+        // Import teams from JSON - OVERWRITES existing data
         const teamsData = data.teams || data;
+        let importedCount = 0;
+        let updatedCount = 0;
         
         for (const [teamName, teamInfo] of Object.entries(teamsData as Record<string, any>)) {
           // Check if team exists
           const existing = await db.select().from(teams).where(eq(teams.name, teamName));
           
           if (existing.length > 0) {
-            // Update existing team
+            // OVERWRITE existing team - update all fields
             await db.update(teams)
               .set({
                 ownerId: String(teamInfo.owner),
@@ -35,9 +37,10 @@ export async function POST(request: NextRequest) {
               })
               .where(eq(teams.name, teamName));
 
-            // Update players
+            // DELETE all existing players for this team
             await db.delete(players).where(eq(players.teamId, existing[0].id));
             
+            // Add new players from import
             if (teamInfo.players && teamInfo.players.length > 0) {
               const playerInserts = teamInfo.players.map((player: any) => {
                 // Handle both object format and string format
@@ -58,6 +61,7 @@ export async function POST(request: NextRequest) {
               });
               await db.insert(players).values(playerInserts);
             }
+            updatedCount++;
           } else {
             // Create new team
             const newTeam = await db.insert(teams).values({
@@ -86,10 +90,14 @@ export async function POST(request: NextRequest) {
               });
               await db.insert(players).values(playerInserts);
             }
+            importedCount++;
           }
         }
 
-        return NextResponse.json({ success: true, message: 'Teams imported successfully' });
+        return NextResponse.json({ 
+          success: true, 
+          message: `Teams imported: ${importedCount} new, ${updatedCount} overwritten` 
+        });
       }
 
       case 'import_auction_round': {
@@ -110,7 +118,7 @@ export async function POST(request: NextRequest) {
           
           // Update round name
           await db.update(auctionRounds)
-            .set({ name })
+            .set({ name, isActive: false, isCompleted: false })
             .where(eq(auctionRounds.id, roundId));
         } else {
           // Create new round
@@ -151,6 +159,35 @@ export async function POST(request: NextRequest) {
           .where(eq(teams.id, id));
 
         return NextResponse.json({ success: true, message: 'Team updated' });
+      }
+
+      case 'delete_team': {
+        // FULLY DELETE a team and all its players
+        const { teamId } = data;
+
+        if (!teamId) {
+          return NextResponse.json({ error: 'Team ID required' }, { status: 400 });
+        }
+
+        // Get team info for confirmation message
+        const team = await db.select().from(teams).where(eq(teams.id, teamId));
+        
+        if (team.length === 0) {
+          return NextResponse.json({ error: 'Team not found' }, { status: 404 });
+        }
+
+        const teamName = team[0].name;
+
+        // Delete all players belonging to this team
+        await db.delete(players).where(eq(players.teamId, teamId));
+
+        // Delete the team
+        await db.delete(teams).where(eq(teams.id, teamId));
+
+        return NextResponse.json({ 
+          success: true, 
+          message: `Team "${teamName}" and all its players have been deleted` 
+        });
       }
 
       case 'add_player': {
@@ -200,6 +237,30 @@ export async function POST(request: NextRequest) {
           success: true, 
           message: `${unsoldData.length} unsold players imported` 
         });
+      }
+
+      case 'create_team': {
+        // Create a new team from admin panel
+        const { name, ownerId, maxSize, purse } = data;
+
+        if (!name || !ownerId) {
+          return NextResponse.json({ error: 'Team name and owner ID required' }, { status: 400 });
+        }
+
+        // Check if team already exists
+        const existing = await db.select().from(teams).where(eq(teams.name, name));
+        if (existing.length > 0) {
+          return NextResponse.json({ error: 'Team with this name already exists' }, { status: 400 });
+        }
+
+        await db.insert(teams).values({
+          name,
+          ownerId: String(ownerId),
+          maxSize: maxSize || 20,
+          purse: purse || 50000000,
+        });
+
+        return NextResponse.json({ success: true, message: `Team "${name}" created` });
       }
 
       default:

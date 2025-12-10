@@ -53,6 +53,8 @@ export default function AdminPage() {
   // Edit states
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [newPlayer, setNewPlayer] = useState({ teamId: 0, playerId: '', name: '', category: '' });
+  const [newTeam, setNewTeam] = useState({ name: '', ownerId: '', maxSize: 20, purse: 50000000 });
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
 
   // Upload states
   const [uploadType, setUploadType] = useState<'teams' | 'round' | 'unsold'>('teams');
@@ -178,6 +180,65 @@ export default function AdminPage() {
     }
   };
 
+  const deleteTeam = async (teamId: number, teamName: string) => {
+    if (!confirm(`Are you sure you want to DELETE team "${teamName}"?\n\nThis will permanently remove the team and ALL its players. This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_team',
+          data: { teamId },
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: result.message });
+        fetchData();
+      } else {
+        setMessage({ type: 'error', text: result.error });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to delete team' });
+    }
+  };
+
+  const createTeam = async () => {
+    if (!newTeam.name || !newTeam.ownerId) {
+      setMessage({ type: 'error', text: 'Team name and owner ID are required' });
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_team',
+          data: newTeam,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: result.message });
+        setNewTeam({ name: '', ownerId: '', maxSize: 20, purse: 50000000 });
+        setShowCreateTeam(false);
+        fetchData();
+      } else {
+        setMessage({ type: 'error', text: result.error });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to create team' });
+    }
+  };
+
   const addPlayer = async () => {
     if (!newPlayer.teamId || !newPlayer.name || !newPlayer.playerId) {
       setMessage({ type: 'error', text: 'Please fill in Team, Player ID, and Name' });
@@ -287,9 +348,57 @@ export default function AdminPage() {
       {/* Teams Tab */}
       {activeTab === 'teams' && (
         <div className="space-y-6">
+          {/* Create Team Button */}
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowCreateTeam(!showCreateTeam)}
+              className="btn-primary"
+            >
+              {showCreateTeam ? 'Cancel' : '+ Create Team'}
+            </button>
+          </div>
+
+          {/* Create Team Form */}
+          {showCreateTeam && (
+            <div className="card bg-surface-light">
+              <h3 className="font-semibold mb-4">Create New Team</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <input
+                  type="text"
+                  placeholder="Team Name *"
+                  value={newTeam.name}
+                  onChange={e => setNewTeam({ ...newTeam, name: e.target.value })}
+                  className="input"
+                />
+                <input
+                  type="text"
+                  placeholder="Owner Discord ID *"
+                  value={newTeam.ownerId}
+                  onChange={e => setNewTeam({ ...newTeam, ownerId: e.target.value })}
+                  className="input"
+                />
+                <input
+                  type="number"
+                  placeholder="Max Size"
+                  value={newTeam.maxSize}
+                  onChange={e => setNewTeam({ ...newTeam, maxSize: parseInt(e.target.value) })}
+                  className="input"
+                />
+                <input
+                  type="number"
+                  placeholder="Purse"
+                  value={newTeam.purse}
+                  onChange={e => setNewTeam({ ...newTeam, purse: parseFloat(e.target.value) })}
+                  className="input"
+                />
+              </div>
+              <button onClick={createTeam} className="btn-primary mt-4">Create Team</button>
+            </div>
+          )}
+
           {/* Teams List */}
           <div className="card">
-            <h2 className="text-xl font-semibold mb-4">Teams</h2>
+            <h2 className="text-xl font-semibold mb-4">Teams ({teams.length})</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -306,19 +415,27 @@ export default function AdminPage() {
                   {teams.map(team => {
                     const teamPlayers = players.filter(p => p.teamId === team.id);
                     return (
-                      <tr key={team.id} className="border-b border-border/50 table-row">
+                      <tr key={team.id} className="border-b border-border/50 hover:bg-surface-light/50">
                         <td className="p-3 font-medium">{team.name}</td>
                         <td className="p-3 font-mono text-sm text-gray-400">{team.ownerId}</td>
                         <td className="p-3 font-mono text-accent">${(team.purse / 1000000).toFixed(2)}M</td>
                         <td className="p-3">{team.maxSize}</td>
                         <td className="p-3">{teamPlayers.length}</td>
                         <td className="p-3">
-                          <button
-                            onClick={() => setEditingTeam(team)}
-                            className="text-accent hover:underline text-sm"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => setEditingTeam(team)}
+                              className="text-accent hover:underline text-sm"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteTeam(team.id, team.name)}
+                              className="text-red-400 hover:underline text-sm"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -526,6 +643,22 @@ export default function AdminPage() {
                 ))}
               </div>
             </div>
+
+            {/* Warning for Teams Upload */}
+            {uploadType === 'teams' && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-yellow-500 text-xl">⚠️</span>
+                  <div>
+                    <h4 className="font-medium text-yellow-400">Overwrite Warning</h4>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Importing teams will <strong>overwrite all existing data</strong> for teams with matching names. 
+                      This includes purse, owner ID, max size, and <strong>all players</strong> will be replaced.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Round-specific fields */}
             {uploadType === 'round' && (

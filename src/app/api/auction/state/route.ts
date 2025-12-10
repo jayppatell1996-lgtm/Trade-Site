@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { auctionState, auctionPlayers, auctionRounds, teams, auctionLogs } from '@/db/schema';
+import { auctionState, auctionPlayers, auctionRounds, teams, auctionLogs, players } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
 export async function GET() {
@@ -21,8 +21,8 @@ export async function GET() {
     // Get current player details if there's an active auction
     let currentPlayer = null;
     if (state.currentPlayerId) {
-      const players = await db.select().from(auctionPlayers).where(eq(auctionPlayers.id, state.currentPlayerId));
-      currentPlayer = players[0] || null;
+      const auctionPlayerList = await db.select().from(auctionPlayers).where(eq(auctionPlayers.id, state.currentPlayerId));
+      currentPlayer = auctionPlayerList[0] || null;
     }
 
     // Get current round details
@@ -32,8 +32,14 @@ export async function GET() {
       currentRound = rounds[0] || null;
     }
 
-    // Get all teams for purse display
+    // Get all teams for purse display with player counts
     const allTeams = await db.select().from(teams);
+    const allPlayers = await db.select().from(players);
+    
+    const teamsWithCount = allTeams.map(team => ({
+      ...team,
+      playerCount: allPlayers.filter(p => p.teamId === team.id).length,
+    }));
 
     // Get pending players count for current round
     let pendingPlayers: any[] = [];
@@ -55,14 +61,30 @@ export async function GET() {
       remainingTime = Math.max(0, Math.floor((state.timerEndTime - Date.now()) / 1000));
     }
 
+    // Get last sale from logs
+    let lastSale = null;
+    const saleLog = recentLogs.find(log => log.logType === 'sale');
+    if (saleLog) {
+      // Parse the sale log message: "Player Name sold to Team for $Amount"
+      const match = saleLog.message.match(/(.+) sold to (.+) for \$(.+)/);
+      if (match) {
+        lastSale = {
+          playerName: match[1],
+          teamName: match[2],
+          amount: parseFloat(match[3].replace(/,/g, '')),
+        };
+      }
+    }
+
     return NextResponse.json({
       ...state,
       currentPlayer,
       currentRound,
-      teams: allTeams,
+      teams: teamsWithCount,
       pendingPlayers: pendingPlayers.filter(p => p.status === 'pending'),
       recentLogs,
       remainingTime,
+      lastSale,
     });
   } catch (error) {
     console.error('Error fetching auction state:', error);

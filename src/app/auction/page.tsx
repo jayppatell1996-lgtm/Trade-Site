@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { ADMIN_IDS } from '@/lib/auth';
 
@@ -32,6 +32,7 @@ interface AuctionState {
     ownerId: string;
     purse: number;
     maxSize: number;
+    playerCount: number;
   }>;
   pendingPlayers: Array<{
     id: number;
@@ -45,6 +46,11 @@ interface AuctionState {
     logType: string;
     timestamp: string;
   }>;
+  lastSale: {
+    playerName: string;
+    teamName: string;
+    amount: number;
+  } | null;
 }
 
 interface Round {
@@ -66,6 +72,8 @@ export default function AuctionPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [waitingForNext, setWaitingForNext] = useState(false);
+  const timerExpiredRef = useRef(false);
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
   const userTeam = state?.teams.find(t => t.ownerId === session?.user?.discordId);
@@ -81,11 +89,46 @@ export default function AuctionPage() {
       const roundsData = await roundsRes.json();
       setState(stateData);
       setRounds(roundsData);
+
+      // Check if we're waiting for next (auction active but no current player)
+      if (stateData.isActive && !stateData.currentPlayerId) {
+        setWaitingForNext(true);
+      } else {
+        setWaitingForNext(false);
+      }
     } catch (error) {
       console.error('Error fetching auction state:', error);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Handle timer expiry - auto-sell to highest bidder
+  const handleTimerExpiry = useCallback(async () => {
+    if (timerExpiredRef.current) return; // Prevent multiple calls
+    timerExpiredRef.current = true;
+
+    try {
+      const res = await fetch('/api/auction/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'timer_expired' }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: data.message });
+        setWaitingForNext(true);
+      }
+    } catch (error) {
+      console.error('Timer expiry error:', error);
+    }
+
+    // Reset after a short delay
+    setTimeout(() => {
+      timerExpiredRef.current = false;
+    }, 2000);
   }, []);
 
   // Polling for real-time updates
@@ -94,6 +137,17 @@ export default function AuctionPage() {
     const interval = setInterval(fetchState, 1000);
     return () => clearInterval(interval);
   }, [fetchState]);
+
+  // Watch for timer expiry
+  useEffect(() => {
+    if (state?.isActive && 
+        state?.currentPlayerId && 
+        !state?.isPaused && 
+        state?.remainingTime <= 0 &&
+        !timerExpiredRef.current) {
+      handleTimerExpiry();
+    }
+  }, [state?.remainingTime, state?.isActive, state?.currentPlayerId, state?.isPaused, handleTimerExpiry]);
 
   const executeAction = async (action: string) => {
     setActionLoading(true);
@@ -110,6 +164,9 @@ export default function AuctionPage() {
 
       if (res.ok) {
         setMessage({ type: 'success', text: data.message });
+        if (action === 'next') {
+          setWaitingForNext(false);
+        }
         fetchState();
       } else {
         setMessage({ type: 'error', text: data.error });
@@ -174,11 +231,13 @@ export default function AuctionPage() {
         </div>
         {state?.isActive && (
           <div className={`px-4 py-2 rounded-full font-medium ${
-            state.isPaused 
-              ? 'bg-yellow-500/20 text-yellow-400' 
-              : 'bg-green-500/20 text-green-400'
+            waitingForNext
+              ? 'bg-blue-500/20 text-blue-400'
+              : state.isPaused 
+                ? 'bg-yellow-500/20 text-yellow-400' 
+                : 'bg-green-500/20 text-green-400'
           }`}>
-            {state.isPaused ? '⏸️ PAUSED' : '🔴 LIVE'}
+            {waitingForNext ? '⏳ WAITING FOR NEXT' : state.isPaused ? '⏸️ PAUSED' : '🔴 LIVE'}
           </div>
         )}
       </div>
@@ -192,8 +251,58 @@ export default function AuctionPage() {
         </div>
       )}
 
-      {/* Active Auction View */}
-      {state?.isActive && state.currentPlayer ? (
+      {/* Active Auction - Waiting for Next */}
+      {state?.isActive && waitingForNext && (
+        <div className="card text-center py-12">
+          {state.lastSale ? (
+            <>
+              <div className="text-6xl mb-4">🎉</div>
+              <h2 className="text-2xl font-bold text-accent mb-2">SOLD!</h2>
+              <p className="text-xl mb-4">
+                <span className="font-semibold">{state.lastSale.playerName}</span> sold to{' '}
+                <span className="font-semibold">{state.lastSale.teamName}</span> for{' '}
+                <span className="text-accent font-mono">{formatMoney(state.lastSale.amount)}</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="text-6xl mb-4">⏳</div>
+              <h2 className="text-xl font-semibold mb-2">Ready for Next Player</h2>
+            </>
+          )}
+          
+          <p className="text-gray-400 mb-6">
+            {state.pendingPlayers.length > 0 
+              ? `${state.pendingPlayers.length} players remaining`
+              : 'No more players in this round'}
+          </p>
+
+          {isAdmin && (
+            <div className="flex gap-4 justify-center">
+              {state.pendingPlayers.length > 0 ? (
+                <button
+                  onClick={() => executeAction('next')}
+                  disabled={actionLoading}
+                  className="btn-primary text-lg px-8 py-3"
+                >
+                  {actionLoading ? 'Loading...' : `⏭️ Next Player (${state.pendingPlayers[0]?.name})`}
+                </button>
+              ) : (
+                <button
+                  onClick={() => executeAction('stop')}
+                  disabled={actionLoading}
+                  className="btn-secondary text-lg px-8 py-3"
+                >
+                  ✅ End Round
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active Auction - Bidding View */}
+      {state?.isActive && state.currentPlayer && !waitingForNext ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Current Player Card */}
           <div className="lg:col-span-2">
@@ -212,7 +321,7 @@ export default function AuctionPage() {
                     state.remainingTime <= 3 ? 'text-red-500 timer-critical' : 
                     state.remainingTime <= 5 ? 'text-yellow-500' : 'text-accent'
                   }`}>
-                    {state.remainingTime}s
+                    {Math.max(0, state.remainingTime)}s
                   </span>
                 </div>
                 <div className="w-full bg-background rounded-full h-3">
@@ -221,7 +330,7 @@ export default function AuctionPage() {
                       state.remainingTime <= 3 ? 'bg-red-500' : 
                       state.remainingTime <= 5 ? 'bg-yellow-500' : 'bg-accent'
                     }`}
-                    style={{ width: `${(state.remainingTime / 10) * 100}%` }}
+                    style={{ width: `${Math.max(0, (state.remainingTime / 10) * 100)}%` }}
                   />
                 </div>
               </div>
@@ -263,14 +372,14 @@ export default function AuctionPage() {
                     disabled={actionLoading}
                     className="btn-secondary"
                   >
-                    ⏭️ Next
+                    ⏭️ Skip
                   </button>
                   <button
                     onClick={() => executeAction('sold')}
                     disabled={actionLoading || !state.highestBidderId}
                     className="btn-primary"
                   >
-                    🔨 Sold
+                    🔨 Sell Now
                   </button>
                   <button
                     onClick={() => executeAction(state.isPaused ? 'resume' : 'pause')}
@@ -301,7 +410,10 @@ export default function AuctionPage() {
                   <div key={team.id} className={`flex justify-between items-center p-2 rounded ${
                     team.ownerId === state.highestBidderId ? 'bg-accent/20' : 'bg-surface-light'
                   }`}>
-                    <span className="text-sm">{team.name}</span>
+                    <div>
+                      <span className="text-sm">{team.name}</span>
+                      <span className="text-xs text-gray-500 ml-2">({team.playerCount}/{team.maxSize})</span>
+                    </div>
                     <span className="font-mono text-sm text-accent">{formatMoney(team.purse)}</span>
                   </div>
                 ))}
@@ -346,7 +458,7 @@ export default function AuctionPage() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : !state?.isActive && (
         /* No Active Auction - Show Round Selection */
         <div className="card">
           <h2 className="text-xl font-semibold mb-6">Select Auction Round</h2>
@@ -415,8 +527,8 @@ export default function AuctionPage() {
               <div className="text-xs text-gray-500">Remaining Purse</div>
             </div>
             <div>
-              <div className="text-2xl font-bold">{userTeam.maxSize}</div>
-              <div className="text-xs text-gray-500">Max Roster</div>
+              <div className="text-2xl font-bold">{userTeam.playerCount}/{userTeam.maxSize}</div>
+              <div className="text-xs text-gray-500">Roster Size</div>
             </div>
           </div>
         </div>

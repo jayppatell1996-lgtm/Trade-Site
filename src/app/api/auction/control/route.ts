@@ -17,6 +17,86 @@ async function logAction(roundId: number | null, message: string, logType: strin
   });
 }
 
+// Helper function to finalize sale to highest bidder
+async function finalizeSale(state: any) {
+  if (!state.highestBidderId || !state.currentPlayerId) {
+    return { success: false, message: 'No valid bid to finalize' };
+  }
+
+  const currentPlayer = await db.select()
+    .from(auctionPlayers)
+    .where(eq(auctionPlayers.id, state.currentPlayerId));
+
+  if (!currentPlayer[0]) {
+    return { success: false, message: 'Player not found' };
+  }
+
+  // Get the winning team
+  const winningTeam = await db.select()
+    .from(teams)
+    .where(eq(teams.ownerId, state.highestBidderId));
+
+  if (!winningTeam[0]) {
+    return { success: false, message: 'Winning team not found' };
+  }
+
+  // Check if team has enough purse
+  if (winningTeam[0].purse < (state.currentBid || 0)) {
+    return { success: false, message: 'Winner has insufficient funds' };
+  }
+
+  // Update player as sold
+  await db.update(auctionPlayers)
+    .set({
+      status: 'sold',
+      soldTo: winningTeam[0].name,
+      soldFor: state.currentBid,
+      soldAt: new Date().toISOString(),
+    })
+    .where(eq(auctionPlayers.id, state.currentPlayerId));
+
+  // Deduct from team purse
+  await db.update(teams)
+    .set({ purse: winningTeam[0].purse - (state.currentBid || 0) })
+    .where(eq(teams.id, winningTeam[0].id));
+
+  // Add player to team roster
+  await db.insert(players).values({
+    playerId: `auction-${Date.now()}`,
+    name: currentPlayer[0].name,
+    teamId: winningTeam[0].id,
+    category: currentPlayer[0].category,
+    boughtFor: state.currentBid,
+  });
+
+  await logAction(
+    state.currentRoundId,
+    `${currentPlayer[0].name} sold to ${winningTeam[0].name} for $${(state.currentBid || 0).toLocaleString()}`,
+    'sale'
+  );
+
+  // Update auction state - player sold, waiting for admin to click Next
+  await db.update(auctionState)
+    .set({
+      isActive: true, // Still active, but waiting for next
+      currentPlayerId: null, // No current player
+      currentBid: 0,
+      highestBidderId: null,
+      highestBidderTeam: null,
+      timerEndTime: null,
+      lastUpdated: new Date().toISOString(),
+    })
+    .where(eq(auctionState.id, state.id));
+
+  return { 
+    success: true, 
+    message: `${currentPlayer[0].name} sold to ${winningTeam[0].name} for $${(state.currentBid || 0).toLocaleString()}!`,
+    playerName: currentPlayer[0].name,
+    teamName: winningTeam[0].name,
+    amount: state.currentBid
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -93,13 +173,13 @@ export async function POST(request: NextRequest) {
       }
 
       case 'next': {
-        // Move current player to unsold and get next player
+        // Move to next player (current player goes unsold if not already sold)
         if (state.currentPlayerId) {
           const currentPlayer = await db.select()
             .from(auctionPlayers)
             .where(eq(auctionPlayers.id, state.currentPlayerId));
 
-          if (currentPlayer[0]) {
+          if (currentPlayer[0] && currentPlayer[0].status === 'current') {
             // Move to unsold
             await db.update(auctionPlayers)
               .set({ status: 'unsold' })
@@ -174,72 +254,52 @@ export async function POST(request: NextRequest) {
       }
 
       case 'sold': {
-        // Finalize sale to highest bidder
-        if (!state.highestBidderId || !state.currentPlayerId) {
-          return NextResponse.json({ error: 'No valid bid to finalize' }, { status: 400 });
+        // Manually finalize sale to highest bidder
+        const result = await finalizeSale(state);
+        
+        if (!result.success) {
+          return NextResponse.json({ error: result.message }, { status: 400 });
         }
 
-        const currentPlayer = await db.select()
-          .from(auctionPlayers)
-          .where(eq(auctionPlayers.id, state.currentPlayerId));
+        return NextResponse.json(result);
+      }
 
-        if (!currentPlayer[0]) {
-          return NextResponse.json({ error: 'Player not found' }, { status: 400 });
+      case 'timer_expired': {
+        // Called when timer runs out - auto-sell if there's a bidder
+        if (!state.currentPlayerId) {
+          return NextResponse.json({ error: 'No active auction' }, { status: 400 });
         }
 
-        // Get the winning team
-        const winningTeam = await db.select()
-          .from(teams)
-          .where(eq(teams.ownerId, state.highestBidderId));
+        if (state.highestBidderId) {
+          // There's a highest bidder - auto sell
+          const result = await finalizeSale(state);
+          return NextResponse.json(result);
+        } else {
+          // No bidder - mark as unsold and wait for Next button
+          const currentPlayer = await db.select()
+            .from(auctionPlayers)
+            .where(eq(auctionPlayers.id, state.currentPlayerId));
 
-        if (!winningTeam[0]) {
-          return NextResponse.json({ error: 'Winning team not found' }, { status: 400 });
-        }
+          if (currentPlayer[0]) {
+            await db.update(auctionPlayers)
+              .set({ status: 'unsold' })
+              .where(eq(auctionPlayers.id, state.currentPlayerId));
 
-        // Update player as sold
-        await db.update(auctionPlayers)
-          .set({
-            status: 'sold',
-            soldTo: winningTeam[0].name,
-            soldFor: state.currentBid,
-            soldAt: new Date().toISOString(),
-          })
-          .where(eq(auctionPlayers.id, state.currentPlayerId));
+            await db.insert(unsoldPlayers).values({
+              name: currentPlayer[0].name,
+              category: currentPlayer[0].category,
+              basePrice: currentPlayer[0].basePrice,
+              originalRoundId: state.currentRoundId,
+              addedAt: new Date().toISOString(),
+            });
 
-        // Deduct from team purse
-        await db.update(teams)
-          .set({ purse: winningTeam[0].purse - (state.currentBid || 0) })
-          .where(eq(teams.id, winningTeam[0].id));
+            await logAction(state.currentRoundId, `${currentPlayer[0].name} went unsold (no bids)`, 'unsold');
+          }
 
-        // Add player to team roster
-        await db.insert(players).values({
-          playerId: `auction-${Date.now()}`,
-          name: currentPlayer[0].name,
-          teamId: winningTeam[0].id,
-          category: currentPlayer[0].category,
-          boughtFor: state.currentBid,
-        });
-
-        await logAction(
-          state.currentRoundId,
-          `${currentPlayer[0].name} sold to ${winningTeam[0].name} for $${(state.currentBid || 0).toLocaleString()}`,
-          'sale'
-        );
-
-        // Get next player
-        const pendingPlayers = await db.select()
-          .from(auctionPlayers)
-          .where(and(
-            eq(auctionPlayers.roundId, state.currentRoundId!),
-            eq(auctionPlayers.status, 'pending')
-          ))
-          .orderBy(auctionPlayers.orderIndex);
-
-        if (pendingPlayers.length === 0) {
-          // No more players
+          // Update state - waiting for Next button
           await db.update(auctionState)
             .set({
-              isActive: false,
+              isActive: true,
               currentPlayerId: null,
               currentBid: 0,
               highestBidderId: null,
@@ -249,37 +309,11 @@ export async function POST(request: NextRequest) {
             })
             .where(eq(auctionState.id, state.id));
 
-          await db.update(auctionRounds)
-            .set({ isActive: false, isCompleted: true })
-            .where(eq(auctionRounds.id, state.currentRoundId!));
-
           return NextResponse.json({ 
             success: true, 
-            message: `${currentPlayer[0].name} sold! Round completed.` 
+            message: `${currentPlayer[0]?.name || 'Player'} went unsold. Click Next for next player.` 
           });
         }
-
-        const nextPlayer = pendingPlayers[0];
-
-        await db.update(auctionPlayers)
-          .set({ status: 'current' })
-          .where(eq(auctionPlayers.id, nextPlayer.id));
-
-        await db.update(auctionState)
-          .set({
-            currentPlayerId: nextPlayer.id,
-            currentBid: nextPlayer.basePrice,
-            highestBidderId: null,
-            highestBidderTeam: null,
-            timerEndTime: Date.now() + (BID_INCREMENT_TIME * 1000),
-            lastUpdated: new Date().toISOString(),
-          })
-          .where(eq(auctionState.id, state.id));
-
-        return NextResponse.json({ 
-          success: true, 
-          message: `${currentPlayer[0].name} sold! Now auctioning: ${nextPlayer.name}` 
-        });
       }
 
       case 'pause': {
