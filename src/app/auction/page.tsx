@@ -57,6 +57,9 @@ interface AuctionState {
     teamName: string;
     amount: number;
   } | null;
+  lastUnsold: {
+    playerName: string;
+  } | null;
 }
 
 interface Round {
@@ -234,7 +237,10 @@ export default function AuctionPage() {
       return;
     }
     
-    console.log('Timer expiry triggered, highestBidder:', state?.highestBidderTeam);
+    // Save current player name before expiry for unsold case
+    const currentPlayerName = state?.currentPlayer?.name;
+    
+    console.log('Timer expiry triggered, highestBidder:', state?.highestBidderTeam, 'player:', currentPlayerName);
     timerExpiredRef.current = true;
     
     try {
@@ -262,7 +268,22 @@ export default function AuctionPage() {
               playerName: data.playerName,
               teamName: data.teamName,
               amount: data.amount || 0,
-            }
+            },
+            lastUnsold: null,
+          } : prev);
+        } else if (currentPlayerName) {
+          // No sale - player went unsold
+          setState(prev => prev ? {
+            ...prev,
+            currentPlayerId: null,
+            currentPlayer: null,
+            currentBid: 0,
+            highestBidderId: null,
+            highestBidderTeam: null,
+            lastSale: null,
+            lastUnsold: {
+              playerName: currentPlayerName,
+            },
           } : prev);
         }
         
@@ -291,7 +312,7 @@ export default function AuctionPage() {
       timerExpiredRef.current = false;
       console.log('Timer expiry ref reset');
     }, 3000);
-  }, [fetchState, waitingForNext, state?.currentPlayerId, state?.highestBidderTeam]);
+  }, [fetchState, waitingForNext, state?.currentPlayerId, state?.highestBidderTeam, state?.currentPlayer?.name]);
 
   // Polling for real-time updates
   useEffect(() => {
@@ -527,7 +548,7 @@ export default function AuctionPage() {
         </div>
 
         <div className="card text-center py-12">
-          <div className="text-6xl mb-4">{state.lastSale ? '🎊' : '⏳'}</div>
+          <div className="text-6xl mb-4">{state.lastSale ? '🎊' : state.lastUnsold ? '😔' : '⏳'}</div>
           
           {state.lastSale ? (
             <>
@@ -540,10 +561,20 @@ export default function AuctionPage() {
                 <span className="text-green-400 font-mono font-bold">{formatMoney(state.lastSale.amount)}</span>
               </p>
             </>
+          ) : state.lastUnsold ? (
+            <>
+              <h2 className="text-2xl font-bold mb-2 text-yellow-400">UNSOLD</h2>
+              <p className="text-xl mb-2">
+                <span className="font-bold">{state.lastUnsold.playerName}</span>
+              </p>
+              <p className="text-gray-400 mb-6">
+                No bids received - added to unsold pool
+              </p>
+            </>
           ) : (
             <>
               <h2 className="text-2xl font-bold mb-2">Ready for Next Player</h2>
-              <p className="text-gray-400 mb-6">Previous player went unsold</p>
+              <p className="text-gray-400 mb-6">Waiting for auction to continue</p>
             </>
           )}
 

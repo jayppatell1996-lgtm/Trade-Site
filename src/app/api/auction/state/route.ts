@@ -200,6 +200,7 @@ export async function GET() {
 
     // Get last sale from logs
     let lastSale = null;
+    let lastSaleTimestamp = 0;
     const saleLog = recentLogs.find(log => log.logType === 'sale');
     if (saleLog) {
       // Parse the sale log message: "Player Name sold to Team for $Amount"
@@ -210,8 +211,27 @@ export async function GET() {
           teamName: match[2],
           amount: parseFloat(match[3].replace(/,/g, '')),
         };
+        lastSaleTimestamp = new Date(saleLog.timestamp).getTime();
       }
     }
+
+    // Get last unsold from logs
+    let lastUnsold = null;
+    let lastUnsoldTimestamp = 0;
+    const unsoldLog = recentLogs.find(log => log.logType === 'unsold');
+    if (unsoldLog) {
+      // Parse unsold message: "Player Name went unsold" or "Player Name went unsold (no bids)"
+      const match = unsoldLog.message.match(/(.+) went unsold/);
+      if (match) {
+        lastUnsold = {
+          playerName: match[1],
+        };
+        lastUnsoldTimestamp = new Date(unsoldLog.timestamp).getTime();
+      }
+    }
+
+    // Determine if last action was sale or unsold
+    const lastActionWasSale = lastSaleTimestamp > lastUnsoldTimestamp;
 
     return NextResponse.json({
       ...state,
@@ -221,7 +241,8 @@ export async function GET() {
       pendingPlayers: pendingPlayers.filter(p => p.status === 'pending'),
       recentLogs,
       remainingTime,
-      lastSale,
+      lastSale: lastActionWasSale ? lastSale : null,
+      lastUnsold: !lastActionWasSale ? lastUnsold : null,
     });
   } catch (error) {
     console.error('Error fetching auction state:', error);
