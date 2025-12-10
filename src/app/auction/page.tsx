@@ -76,7 +76,16 @@ interface AuctionSummary {
   averageBid: number;
   playersRemaining: number;
   playersUnsold: number;
-  highestSale: SaleHistory | null;
+  highestSale?: {
+    playerName: string;
+    teamName: string;
+    amount: number;
+  };
+  teamSpending?: Array<{
+    teamName: string;
+    playersBought: number;
+    totalSpent: number;
+  }>;
 }
 
 interface LogsData {
