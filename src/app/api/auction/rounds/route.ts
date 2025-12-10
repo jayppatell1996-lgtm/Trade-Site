@@ -1,81 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { auctionRounds, auctionPlayers } from '@/lib/db/schema';
+import { eq, desc } from 'drizzle-orm';
 import { getServerSession } from 'next-auth';
-import { authOptions, ADMIN_IDS } from '@/lib/auth';
-import { db } from '@/db';
-import { auctionRounds, auctionPlayers } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { authOptions } from '@/lib/auth';
 
+const ADMIN_IDS = ['256972361918578688', '1111497896018313268'];
+
+// GET - List all auction rounds
 export async function GET() {
   try {
-    const rounds = await db.select().from(auctionRounds).orderBy(auctionRounds.roundNumber);
-    
-    // Get player counts for each round
-    const allPlayers = await db.select().from(auctionPlayers);
-    
-    const roundsWithStats = rounds.map(round => {
-      const roundPlayers = allPlayers.filter(p => p.roundId === round.id);
-      return {
-        ...round,
-        totalPlayers: roundPlayers.length,
-        pendingPlayers: roundPlayers.filter(p => p.status === 'pending').length,
-        soldPlayers: roundPlayers.filter(p => p.status === 'sold').length,
-        unsoldPlayers: roundPlayers.filter(p => p.status === 'unsold').length,
-      };
-    });
-
-    return NextResponse.json(roundsWithStats);
+    const rounds = await db.select().from(auctionRounds).orderBy(desc(auctionRounds.createdAt));
+    return NextResponse.json({ rounds });
   } catch (error) {
     console.error('Error fetching rounds:', error);
     return NextResponse.json({ error: 'Failed to fetch rounds' }, { status: 500 });
   }
 }
 
+// POST - Create a new auction round
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.discordId || !ADMIN_IDS.includes(session.user.discordId)) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (!session?.user?.id || !ADMIN_IDS.includes(session.user.id)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { roundNumber, name, players: playersData } = body;
+    const { name, players } = body;
 
-    // Create the round
-    const newRound = await db.insert(auctionRounds).values({
-      roundNumber,
-      name,
-      isActive: false,
-      isCompleted: false,
-    }).returning();
-
-    // Add players to the round
-    if (playersData && playersData.length > 0) {
-      const playerInserts = playersData.map((player: any, index: number) => ({
-        roundId: newRound[0].id,
-        name: player.name,
-        category: player.category,
-        basePrice: player.base_price || player.basePrice,
-        status: 'pending',
-        orderIndex: index,
-      }));
-
-      await db.insert(auctionPlayers).values(playerInserts);
+    if (!name) {
+      return NextResponse.json({ error: 'Round name required' }, { status: 400 });
     }
 
-    return NextResponse.json(newRound[0]);
+    // Create the round
+    const [round] = await db.insert(auctionRounds).values({
+      name,
+      status: 'pending',
+      createdAt: new Date()
+    }).returning();
+
+    // Add players if provided
+    if (players && Array.isArray(players)) {
+      for (const player of players) {
+        await db.insert(auctionPlayers).values({
+          roundId: round.id,
+          playerId: player.id || null, // Original player ID from import
+          name: player.name,
+          category: player.category || 'Unknown',
+          basePrice: player.base_price || player.basePrice || 100000,
+          status: 'pending'
+        });
+      }
+    }
+
+    return NextResponse.json({ success: true, round });
   } catch (error) {
     console.error('Error creating round:', error);
     return NextResponse.json({ error: 'Failed to create round' }, { status: 500 });
   }
 }
 
+// DELETE - Delete an auction round
 export async function DELETE(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.discordId || !ADMIN_IDS.includes(session.user.discordId)) {
-      return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+    if (!session?.user?.id || !ADMIN_IDS.includes(session.user.id)) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -85,11 +76,13 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
     }
 
-    // Delete players first
-    await db.delete(auctionPlayers).where(eq(auctionPlayers.roundId, parseInt(roundId)));
+    const id = parseInt(roundId, 10);
+
+    // Delete all players in the round first
+    await db.delete(auctionPlayers).where(eq(auctionPlayers.roundId, id));
     
-    // Delete round
-    await db.delete(auctionRounds).where(eq(auctionRounds.id, parseInt(roundId)));
+    // Delete the round
+    await db.delete(auctionRounds).where(eq(auctionRounds.id, id));
 
     return NextResponse.json({ success: true });
   } catch (error) {

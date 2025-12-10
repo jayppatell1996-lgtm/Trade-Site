@@ -2,317 +2,464 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import Link from 'next/link';
-import { ADMIN_IDS } from '@/lib/auth';
+
+// Timer constants (in seconds for display)
+const BID_INCREMENT_TIME = 12; // Initial timer
+const BID_CONTINUE_TIME = 8;   // Timer after bid
+
+interface AuctionPlayer {
+  id: number;
+  playerId?: number;
+  name: string;
+  category: string;
+  basePrice: number;
+  status?: string;
+}
+
+interface AuctionRound {
+  id: number;
+  name: string;
+  status: string;
+  createdAt: string;
+}
 
 interface AuctionState {
-  id: number;
   isActive: boolean;
-  isPaused: boolean;
-  currentRoundId: number | null;
   currentPlayerId: number | null;
+  currentPlayer: AuctionPlayer | null;
   currentBid: number;
   highestBidderId: string | null;
-  highestBidderTeam: string | null;
-  timerEndTime: number | null;
+  highestBidderName: string | null;
   remainingTime: number;
-  currentPlayer: {
-    id: number;
-    name: string;
-    category: string;
-    basePrice: number;
-  } | null;
-  currentRound: {
-    id: number;
-    name: string;
-    roundNumber: number;
-  } | null;
-  teams: Array<{
-    id: number;
-    name: string;
-    ownerId: string;
-    purse: number;
-    maxSize: number;
-    playerCount: number;
-  }>;
-  pendingPlayers: Array<{
-    id: number;
-    name: string;
-    category: string;
-    basePrice: number;
-  }>;
-  recentLogs: Array<{
-    id: number;
-    message: string;
-    logType: string;
-    timestamp: string;
-  }>;
-  lastSale: {
-    playerName: string;
-    teamName: string;
-    amount: number;
-  } | null;
+  isPaused: boolean;
+  roundId: number | null;
 }
 
-interface Round {
+interface Team {
   id: number;
-  roundNumber: number;
   name: string;
-  isActive: boolean;
-  isCompleted: boolean;
-  totalPlayers: number;
-  pendingPlayers: number;
-  soldPlayers: number;
+  ownerId: string;
+  purse: number;
+  maxSize: number;
+  players: string;
 }
+
+const ADMIN_IDS = ['256972361918578688', '1111497896018313268'];
 
 export default function AuctionPage() {
   const { data: session } = useSession();
-  const [state, setState] = useState<AuctionState | null>(null);
-  const [rounds, setRounds] = useState<Round[]>([]);
+  const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
+  const [pendingPlayers, setPendingPlayers] = useState<AuctionPlayer[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [rounds, setRounds] = useState<AuctionRound[]>([]);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
   const [bidLoading, setBidLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [waitingForNext, setWaitingForNext] = useState(false);
-  const [roundCompleted, setRoundCompleted] = useState(false);
-  const [localTimer, setLocalTimer] = useState<number>(0);
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
-  
-  const timerExpiredRef = useRef(false);
-  const lastServerTimeRef = useRef<number>(0);
+  const [error, setError] = useState<string | null>(null);
+  const [showRoundList, setShowRoundList] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
-  const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
-  const userTeam = state?.teams.find(t => t.ownerId === session?.user?.discordId);
-  const isTeamOwner = !!userTeam;
+  // Local timer for smooth countdown
+  const [localTimer, setLocalTimer] = useState(0);
+  const lastServerSync = useRef<number>(0);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const isAdmin = session?.user?.id && ADMIN_IDS.includes(session.user.id);
+  const userTeam = teams.find(t => t.ownerId === session?.user?.id);
+
+  // Fetch auction rounds
+  const fetchRounds = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auction/rounds');
+      if (res.ok) {
+        const data = await res.json();
+        setRounds(data.rounds || []);
+      }
+    } catch (err) {
+      console.error('Error fetching rounds:', err);
+    }
+  }, []);
+
+  // Fetch teams
+  const fetchTeams = useCallback(async () => {
+    try {
+      const res = await fetch('/api/teams');
+      if (res.ok) {
+        const data = await res.json();
+        setTeams(data.teams || []);
+      }
+    } catch (err) {
+      console.error('Error fetching teams:', err);
+    }
+  }, []);
+
+  // Fetch auction state
   const fetchState = useCallback(async () => {
     try {
-      const [stateRes, roundsRes] = await Promise.all([
-        fetch('/api/auction/state'),
-        fetch('/api/auction/rounds'),
-      ]);
-      const stateData = await stateRes.json();
-      const roundsData = await roundsRes.json();
-      setState(stateData);
-      // Rounds API returns array directly, not { rounds: [...] }
-      setRounds(Array.isArray(roundsData) ? roundsData : roundsData.rounds || []);
-
-      // Update local timer from server (validate it's reasonable)
-      const serverTime = stateData.remainingTime;
-      if (serverTime !== lastServerTimeRef.current && serverTime >= 0 && serverTime <= 60) {
-        setLocalTimer(serverTime);
-        lastServerTimeRef.current = serverTime;
-      } else if (serverTime > 60) {
-        // Timer seems corrupted, reset to 0
-        setLocalTimer(0);
-        lastServerTimeRef.current = 0;
-      }
-
-      // Check states
-      if (stateData.isActive && !stateData.currentPlayerId) {
-        setWaitingForNext(true);
-        setRoundCompleted(false);
-      } else if (!stateData.isActive && stateData.currentRoundId) {
-        // Round just completed
-        const round = roundsData.find((r: Round) => r.id === stateData.currentRoundId);
-        if (round?.isCompleted) {
-          setRoundCompleted(true);
+      const res = await fetch('/api/auction/state');
+      if (res.ok) {
+        const data = await res.json();
+        setAuctionState(data);
+        
+        // Sync local timer with server (but not too often)
+        const now = Date.now();
+        if (now - lastServerSync.current > 1500 || !data.isPaused) {
+          // Ensure remainingTime is a valid number
+          let serverTime = Number(data.remainingTime) || 0;
+          if (!Number.isFinite(serverTime) || serverTime < 0) {
+            serverTime = 0;
+          }
+          if (serverTime > BID_INCREMENT_TIME) {
+            serverTime = BID_INCREMENT_TIME;
+          }
+          setLocalTimer(serverTime);
+          lastServerSync.current = now;
         }
-      } else {
-        setWaitingForNext(false);
-        setRoundCompleted(false);
       }
-    } catch (error) {
-      console.error('Error fetching auction state:', error);
-    } finally {
+    } catch (err) {
+      console.error('Error fetching state:', err);
+    }
+  }, []);
+
+  // Fetch pending players for selected round
+  const fetchPendingPlayers = useCallback(async (roundId: number) => {
+    try {
+      const res = await fetch(`/api/auction/rounds/${roundId}/players`);
+      if (res.ok) {
+        const data = await res.json();
+        setPendingPlayers(data.players?.filter((p: AuctionPlayer) => p.status === 'pending') || []);
+      }
+    } catch (err) {
+      console.error('Error fetching players:', err);
+    }
+  }, []);
+
+  // Local timer countdown
+  useEffect(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+    }
+
+    if (auctionState?.isActive && !auctionState?.isPaused && localTimer > 0) {
+      timerIntervalRef.current = setInterval(() => {
+        setLocalTimer(prev => {
+          const newVal = prev - 0.1; // Smooth 100ms decrement
+          return newVal > 0 ? Math.round(newVal * 10) / 10 : 0;
+        });
+      }, 100);
+    }
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+      }
+    };
+  }, [auctionState?.isActive, auctionState?.isPaused, localTimer > 0]);
+
+  // Initial load
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([fetchRounds(), fetchTeams(), fetchState()]);
       setLoading(false);
-    }
-  }, []);
+    };
+    init();
+  }, [fetchRounds, fetchTeams, fetchState]);
 
-  // Local timer countdown for smooth display
+  // Poll for updates
   useEffect(() => {
-    if (!state?.isActive || state?.isPaused || !state?.currentPlayerId) return;
-    
     const interval = setInterval(() => {
-      setLocalTimer(prev => Math.max(0, prev - 1));
-    }, 1000);
-    
+      fetchState();
+      fetchTeams();
+      if (selectedRound) {
+        fetchPendingPlayers(selectedRound);
+      }
+    }, 1500); // Poll every 1.5 seconds
+
     return () => clearInterval(interval);
-  }, [state?.isActive, state?.isPaused, state?.currentPlayerId]);
+  }, [fetchState, fetchTeams, fetchPendingPlayers, selectedRound]);
 
-  // Handle timer expiry
-  const handleTimerExpiry = useCallback(async () => {
-    if (timerExpiredRef.current) return;
-    timerExpiredRef.current = true;
+  // Handle selecting a round
+  const handleSelectRound = async (roundId: number) => {
+    setSelectedRound(roundId);
+    setShowRoundList(false);
+    await fetchPendingPlayers(roundId);
+  };
 
+  // Handle starting auction for a player
+  const handleStartAuction = async (playerId: number) => {
     try {
       const res = await fetch('/api/auction/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'timer_expired' }),
+        body: JSON.stringify({ action: 'start', playerId, roundId: selectedRound })
       });
-
-      const data = await res.json();
-
+      
       if (res.ok) {
-        setMessage({ type: 'success', text: data.message });
-        setWaitingForNext(true);
-      }
-    } catch (error) {
-      console.error('Timer expiry error:', error);
-    }
-
-    setTimeout(() => {
-      timerExpiredRef.current = false;
-    }, 2000);
-  }, []);
-
-  // Polling for real-time updates
-  useEffect(() => {
-    fetchState();
-    const interval = setInterval(fetchState, 1500); // Slightly slower polling
-    return () => clearInterval(interval);
-  }, [fetchState]);
-
-  // Watch for timer expiry
-  useEffect(() => {
-    if (state?.isActive && 
-        state?.currentPlayerId && 
-        !state?.isPaused && 
-        localTimer <= 0 &&
-        !timerExpiredRef.current) {
-      handleTimerExpiry();
-    }
-  }, [localTimer, state?.isActive, state?.currentPlayerId, state?.isPaused, handleTimerExpiry]);
-
-  const executeAction = async (action: string) => {
-    setActionLoading(true);
-    setMessage(null);
-
-    try {
-      const res = await fetch('/api/auction/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, roundId: selectedRound }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setMessage({ type: 'success', text: data.message });
-        if (action === 'next') {
-          setWaitingForNext(false);
-          timerExpiredRef.current = false;
-        }
-        if (action === 'stop') {
-          setRoundCompleted(false);
-          setWaitingForNext(false);
-        }
-        fetchState();
-      } else {
-        setMessage({ type: 'error', text: data.error });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Action failed' });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const placeBid = async () => {
-    setBidLoading(true);
-    setMessage(null);
-
-    try {
-      const res = await fetch('/api/auction/bid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        // Optimistic update - immediately show new timer
-        setLocalTimer(data.remainingTime || 6);
-        setMessage({ type: 'success', text: data.message });
-        // Quick fetch to get updated state
-        fetchState();
-      } else if (data.retry) {
-        // Race condition - retry after short delay
-        setTimeout(placeBid, 100);
-        return;
-      } else {
-        setMessage({ type: 'error', text: data.error });
-      }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Bid failed' });
-    } finally {
-      setBidLoading(false);
-    }
-  };
-
-  const deleteRound = async (roundId: number) => {
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/auction/rounds?id=${roundId}`, {
-        method: 'DELETE',
-      });
-
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Round deleted' });
-        setDeleteConfirm(null);
-        fetchState();
+        setLocalTimer(BID_INCREMENT_TIME);
+        await fetchState();
       } else {
         const data = await res.json();
-        setMessage({ type: 'error', text: data.error || 'Failed to delete round' });
+        setError(data.error || 'Failed to start auction');
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to delete round' });
-    } finally {
-      setActionLoading(false);
+    } catch (err) {
+      setError('Failed to start auction');
     }
   };
 
-  const formatMoney = (amount: number) => {
-    return `$${(amount / 1000000).toFixed(2)}M`;
+  // Handle placing a bid
+  const handleBid = async () => {
+    if (bidLoading) return;
+    
+    setBidLoading(true);
+    setError(null);
+
+    const attemptBid = async (retries = 2): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/auction/bid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await res.json();
+        
+        if (res.status === 429 && data.retry && retries > 0) {
+          // Server busy, retry after short delay
+          await new Promise(r => setTimeout(r, 100));
+          return attemptBid(retries - 1);
+        }
+        
+        if (res.ok) {
+          // Optimistic update - set timer to 8 seconds immediately
+          setLocalTimer(BID_CONTINUE_TIME);
+          await fetchState();
+          return true;
+        } else {
+          setError(data.error || 'Bid failed');
+          return false;
+        }
+      } catch (err) {
+        if (retries > 0) {
+          await new Promise(r => setTimeout(r, 100));
+          return attemptBid(retries - 1);
+        }
+        setError('Network error');
+        return false;
+      }
+    };
+
+    await attemptBid();
+    setBidLoading(false);
+  };
+
+  // Handle admin controls
+  const handleControl = async (action: 'pause' | 'resume' | 'skip' | 'stop') => {
+    try {
+      const res = await fetch('/api/auction/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      
+      if (res.ok) {
+        if (action === 'resume') {
+          setLocalTimer(BID_INCREMENT_TIME); // Resume resets to 12s
+        }
+        await fetchState();
+        if (selectedRound) {
+          await fetchPendingPlayers(selectedRound);
+        }
+      } else {
+        const data = await res.json();
+        setError(data.error || `Failed to ${action}`);
+      }
+    } catch (err) {
+      setError(`Failed to ${action}`);
+    }
+  };
+
+  // Handle selling player
+  const handleSold = async () => {
+    try {
+      const res = await fetch('/api/auction/sold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (res.ok) {
+        await fetchState();
+        await fetchTeams();
+        if (selectedRound) {
+          await fetchPendingPlayers(selectedRound);
+        }
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to sell player');
+      }
+    } catch (err) {
+      setError('Failed to sell player');
+    }
+  };
+
+  // Handle delete round
+  const handleDeleteRound = async (roundId: number) => {
+    try {
+      const res = await fetch(`/api/auction/rounds?id=${roundId}`, {
+        method: 'DELETE'
+      });
+      
+      if (res.ok) {
+        setDeleteConfirmId(null);
+        await fetchRounds();
+        if (selectedRound === roundId) {
+          setSelectedRound(null);
+          setPendingPlayers([]);
+        }
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to delete round');
+      }
+    } catch (err) {
+      setError('Failed to delete round');
+    }
+  };
+
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    if (amount >= 1000000) {
+      return `$${(amount / 1000000).toFixed(2)}M`;
+    }
+    return `$${amount.toLocaleString()}`;
+  };
+
+  // Calculate progress percentage (smooth)
+  const getProgressPercent = (): number => {
+    const maxTime = BID_INCREMENT_TIME;
+    const percent = (localTimer / maxTime) * 100;
+    return Math.max(0, Math.min(100, percent));
+  };
+
+  // Get timer color
+  const getTimerColor = (): string => {
+    if (localTimer <= 3) return 'text-red-500';
+    if (localTimer <= 6) return 'text-yellow-500';
+    return 'text-green-500';
+  };
+
+  // Get progress bar color
+  const getProgressColor = (): string => {
+    if (localTimer <= 3) return 'bg-red-500';
+    if (localTimer <= 6) return 'bg-yellow-500';
+    return 'bg-green-500';
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-accent mx-auto mb-4" />
-          <p className="text-gray-400">Loading auction...</p>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading auction...</div>
+      </div>
+    );
+  }
+
+  // Round selection screen
+  if (!selectedRound || showRoundList) {
+    return (
+      <div className="min-h-screen bg-gray-900 p-6">
+        <div className="max-w-4xl mx-auto">
+          <h1 className="text-3xl font-bold text-white mb-6">🏏 Auction Rounds</h1>
+          
+          {rounds.length === 0 ? (
+            <div className="bg-gray-800 rounded-lg p-8 text-center">
+              <p className="text-gray-400 text-lg">No auction rounds available</p>
+              <p className="text-gray-500 mt-2">Create a round to get started</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {rounds.map(round => (
+                <div 
+                  key={round.id}
+                  className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-green-500 transition-colors"
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="flex-1">
+                      <h3 className="text-xl font-semibold text-white">{round.name}</h3>
+                      <p className="text-gray-400 text-sm">
+                        Status: <span className={round.status === 'active' ? 'text-green-400' : 'text-gray-500'}>
+                          {round.status}
+                        </span>
+                      </p>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleSelectRound(round.id)}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+                      >
+                        Select
+                      </button>
+                      
+                      {isAdmin && (
+                        <>
+                          {deleteConfirmId === round.id ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleDeleteRound(round.id)}
+                                className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="px-3 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmId(round.id)}
+                              className="px-3 py-2 bg-gray-700 hover:bg-red-600 text-white rounded-lg transition-colors"
+                              title="Delete round"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
-  // Round Completed Screen
-  if (roundCompleted && !state?.isActive) {
+  // Check if round is complete
+  if (pendingPlayers.length === 0 && !auctionState?.isActive) {
     return (
-      <div className="space-y-6">
-        <div className="card text-center py-12">
-          <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-3xl font-bold mb-4">Round Completed!</h2>
-          <p className="text-gray-400 mb-8">
-            {state?.currentRound?.name || 'This round'} has finished. All players have been auctioned.
-          </p>
-          
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              onClick={() => {
-                setRoundCompleted(false);
-                setSelectedRound(null);
-              }}
-              className="btn-primary"
-            >
-              📋 Select Another Round
-            </button>
-            <Link href="/auction-summary" className="btn-secondary">
-              📊 View Auction Summary
-            </Link>
+      <div className="min-h-screen bg-gray-900 p-6">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="bg-gray-800 rounded-lg p-8 border border-gray-700">
+            <h2 className="text-4xl mb-4">🎉</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">Round Completed!</h2>
+            <p className="text-gray-400 mb-6">All players in this round have been auctioned.</p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => setShowRoundList(true)}
+                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
+              >
+                Select Another Round
+              </button>
+              <a
+                href="/auction-summary"
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+              >
+                View Auction Summary
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -320,394 +467,220 @@ export default function AuctionPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Live Auction</h1>
-          <p className="text-gray-400">
-            {state?.isActive 
-              ? `Round ${state.currentRound?.roundNumber}: ${state.currentRound?.name}`
-              : 'Select a round to begin'}
-          </p>
+    <div className="min-h-screen bg-gray-900 p-4 md:p-6">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-white">🏏 Live Auction</h1>
+          <button
+            onClick={() => setShowRoundList(true)}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm"
+          >
+            📋 Change Round
+          </button>
         </div>
-        <Link href="/auction-summary" className="btn-secondary">
-          📊 Summary
-        </Link>
-      </div>
 
-      {/* Message */}
-      {message && (
-        <div className={`p-4 rounded-lg ${
-          message.type === 'success' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-        }`}>
-          {message.text}
-        </div>
-      )}
+        {/* Error display */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded-lg text-red-200">
+            {error}
+            <button onClick={() => setError(null)} className="ml-4 text-red-400 hover:text-red-300">✕</button>
+          </div>
+        )}
 
-      {/* Waiting for Next Player Screen */}
-      {waitingForNext && state?.isActive && !state?.currentPlayerId && (
-        <div className="card text-center py-8">
-          <div className="text-4xl mb-4">⏳</div>
-          <h2 className="text-2xl font-bold mb-2">Waiting for Next Player</h2>
-          
-          {state.lastSale ? (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-6 max-w-md mx-auto">
-              <div className="text-green-400 text-sm mb-1">Last Sale</div>
-              <div className="text-xl font-bold">{state.lastSale.playerName}</div>
-              <div className="text-gray-400">
-                sold to <span className="text-accent">{state.lastSale.teamName}</span> for{' '}
-                <span className="text-green-400">{formatMoney(state.lastSale.amount)}</span>
+        {/* Live Auction Card */}
+        {auctionState?.isActive && auctionState.currentPlayer ? (
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 mb-6">
+            {/* Status Badge */}
+            <div className="flex justify-between items-start mb-4">
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                auctionState.isPaused 
+                  ? 'bg-yellow-500/20 text-yellow-400' 
+                  : 'bg-red-500/20 text-red-400'
+              }`}>
+                {auctionState.isPaused ? '⏸️ PAUSED' : '🔴 LIVE'}
+              </span>
+              <span className="text-gray-400">{auctionState.currentPlayer.category}</span>
+            </div>
+
+            {/* Player Name */}
+            <h2 className="text-3xl md:text-4xl font-bold text-green-400 text-center mb-2">
+              {auctionState.currentPlayer.name}
+            </h2>
+            <p className="text-center text-gray-400 mb-6">
+              Base Price: {formatCurrency(auctionState.currentPlayer.basePrice)}
+            </p>
+
+            {/* Timer */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-gray-400">Time Remaining</span>
+                <span className={`text-2xl font-bold font-mono ${getTimerColor()}`}>
+                  {Math.max(0, Math.ceil(localTimer))}s
+                </span>
+              </div>
+              <div className="h-3 bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full ${getProgressColor()} transition-all duration-100 ease-linear`}
+                  style={{ width: `${getProgressPercent()}%` }}
+                />
               </div>
             </div>
-          ) : (
-            <p className="text-gray-400 mb-6">Player went unsold</p>
-          )}
 
-          {state.pendingPlayers.length > 0 ? (
-            <>
-              <p className="text-gray-400 mb-4">
-                <span className="text-accent font-bold">{state.pendingPlayers.length}</span> players remaining
-              </p>
-              
-              {isAdmin && (
-                <button
-                  onClick={() => executeAction('next')}
-                  disabled={actionLoading}
-                  className="btn-primary text-lg px-8 py-3"
-                >
-                  {actionLoading ? 'Loading...' : `⏭️ Next Player (${state.pendingPlayers[0]?.name})`}
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <p className="text-yellow-400 mb-4">No more players in this round!</p>
-              {isAdmin && (
-                <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <button
-                    onClick={() => executeAction('stop')}
-                    disabled={actionLoading}
-                    className="btn-danger"
-                  >
-                    🛑 End Round
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Active Auction Display */}
-      {state?.isActive && state?.currentPlayer && !waitingForNext && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Auction Panel */}
-          <div className="lg:col-span-2">
-            <div className={`card ${state.isPaused ? 'border-yellow-500/50' : 'border-accent/50'} border-2`}>
-              {/* Status Badge */}
-              <div className="flex items-center justify-between mb-4">
-                <div className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                  state.isPaused 
-                    ? 'bg-yellow-500/20 text-yellow-400' 
-                    : 'bg-red-500/20 text-red-400 animate-pulse'
-                }`}>
-                  {state.isPaused ? '⏸️ PAUSED' : '🔴 LIVE'}
-                </div>
-                <div className="text-sm text-gray-400">
-                  {state.currentPlayer.category}
-                </div>
+            {/* Bid Info */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                <p className="text-gray-400 text-sm">Current Bid</p>
+                <p className="text-2xl font-bold text-green-400">
+                  {formatCurrency(auctionState.currentBid)}
+                </p>
               </div>
-
-              {/* Player Name */}
-              <div className="text-center mb-6">
-                <h2 className="text-4xl font-bold text-accent mb-4">{state.currentPlayer.name}</h2>
-                <div className="text-sm text-gray-400">Base Price: {formatMoney(state.currentPlayer.basePrice)}</div>
+              <div className="bg-gray-700/50 rounded-lg p-4 text-center">
+                <p className="text-gray-400 text-sm">Highest Bidder</p>
+                <p className="text-xl font-bold text-white">
+                  {auctionState.highestBidderName || 'No bids yet'}
+                </p>
               </div>
+            </div>
 
-              {/* Timer - Using local timer for smooth countdown */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="text-gray-400">Time Remaining</span>
-                  <span className={`font-mono text-2xl font-bold transition-colors ${
-                    localTimer <= 3 ? 'text-red-500' : 
-                    localTimer <= 5 ? 'text-yellow-500' : 'text-accent'
-                  }`}>
-                    {state.isPaused ? '⏸️' : `${Math.max(0, localTimer)}s`}
+            {/* Bid Button */}
+            {userTeam && !auctionState.isPaused && (
+              <button
+                onClick={handleBid}
+                disabled={bidLoading}
+                className={`w-full py-4 rounded-xl font-bold text-lg transition-all ${
+                  bidLoading
+                    ? 'bg-gray-600 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600 active:scale-[0.98]'
+                } text-white`}
+              >
+                {bidLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                    </svg>
+                    Bidding...
                   </span>
-                </div>
-                <div className="w-full bg-background rounded-full h-4 overflow-hidden">
-                  <div 
-                    className={`h-4 rounded-full transition-all duration-300 ${
-                      localTimer <= 3 ? 'bg-red-500' : 
-                      localTimer <= 5 ? 'bg-yellow-500' : 'bg-accent'
-                    }`}
-                    style={{ 
-                      width: `${Math.max(0, (localTimer / 10) * 100)}%`,
-                      transition: state.isPaused ? 'none' : 'width 1s linear'
-                    }}
-                  />
-                </div>
-              </div>
+                ) : (
+                  `💰 Place Bid (${userTeam.name})`
+                )}
+              </button>
+            )}
 
-              {/* Current Bid */}
-              <div className="bg-surface-light rounded-xl p-6 mb-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="text-center">
-                    <div className="text-sm text-gray-400 mb-1">Current Bid</div>
-                    <div className="text-3xl font-bold text-accent font-mono">
-                      {formatMoney(state.currentBid || 0)}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-sm text-gray-400 mb-1">Highest Bidder</div>
-                    <div className="text-xl font-semibold">
-                      {state.highestBidderTeam || 'No bids yet'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bid Button */}
-              {session && isTeamOwner && (
+            {/* Admin Controls */}
+            {isAdmin && (
+              <div className="grid grid-cols-4 gap-2 mt-4">
                 <button
-                  onClick={placeBid}
-                  disabled={bidLoading || actionLoading || state.isPaused}
-                  className={`btn-primary w-full text-xl py-4 mb-4 transition-all ${
-                    bidLoading ? 'opacity-70 scale-98' : ''
+                  onClick={() => handleControl('skip')}
+                  className="py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors active:scale-95"
+                >
+                  ⏭️ Skip
+                </button>
+                <button
+                  onClick={handleSold}
+                  disabled={!auctionState.highestBidderId}
+                  className={`py-3 rounded-lg font-medium transition-colors active:scale-95 ${
+                    auctionState.highestBidderId
+                      ? 'bg-yellow-600 hover:bg-yellow-700 text-white'
+                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
                   }`}
                 >
-                  {bidLoading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-                      Bidding...
-                    </span>
-                  ) : state.isPaused ? (
-                    '⏸️ Bidding Paused'
-                  ) : (
-                    `💰 Place Bid (${userTeam?.name})`
-                  )}
+                  🔨 Sell Now
                 </button>
-              )}
-
-              {/* Admin Controls */}
-              {isAdmin && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <button
-                    onClick={() => executeAction('next')}
-                    disabled={actionLoading}
-                    className="btn-secondary"
-                  >
-                    ⏭️ Skip
-                  </button>
-                  <button
-                    onClick={() => executeAction('sold')}
-                    disabled={actionLoading || !state.highestBidderId}
-                    className="btn-primary"
-                  >
-                    🔨 Sell Now
-                  </button>
-                  <button
-                    onClick={() => executeAction(state.isPaused ? 'resume' : 'pause')}
-                    disabled={actionLoading}
-                    className="btn-warning"
-                  >
-                    {state.isPaused ? '▶️ Resume' : '⏸️ Pause'}
-                  </button>
-                  <button
-                    onClick={() => executeAction('stop')}
-                    disabled={actionLoading}
-                    className="btn-danger"
-                  >
-                    🛑 Stop
-                  </button>
-                </div>
-              )}
-            </div>
+                <button
+                  onClick={() => handleControl(auctionState.isPaused ? 'resume' : 'pause')}
+                  className={`py-3 rounded-lg font-medium transition-colors active:scale-95 ${
+                    auctionState.isPaused
+                      ? 'bg-green-600 hover:bg-green-700'
+                      : 'bg-orange-600 hover:bg-orange-700'
+                  } text-white`}
+                >
+                  {auctionState.isPaused ? '▶️ Resume' : '⏸️ Pause'}
+                </button>
+                <button
+                  onClick={() => handleControl('stop')}
+                  className="py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors active:scale-95"
+                >
+                  🛑 Stop
+                </button>
+              </div>
+            )}
           </div>
+        ) : (
+          /* No Active Auction */
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 mb-6 text-center">
+            <p className="text-gray-400 text-lg mb-4">No auction in progress</p>
+            {isAdmin && pendingPlayers.length > 0 && (
+              <p className="text-gray-500">Select a player below to start the auction</p>
+            )}
+          </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Team Purses */}
-            <div className="card">
-              <h3 className="font-semibold mb-4">Team Purses</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {state.teams.map(team => (
-                  <div key={team.id} className={`flex justify-between items-center p-2 rounded transition-all ${
-                    team.ownerId === state.highestBidderId ? 'bg-accent/20 scale-[1.02]' : 'bg-surface-light'
-                  }`}>
-                    <div>
-                      <span className="text-sm">{team.name}</span>
-                      <span className="text-xs text-gray-500 ml-2">({team.playerCount}/{team.maxSize})</span>
-                    </div>
-                    <span className="font-mono text-sm text-accent">{formatMoney(team.purse)}</span>
-                  </div>
-                ))}
+        {/* Team Purses */}
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 mb-6">
+          <h3 className="text-lg font-semibold text-white mb-3">💼 Team Purses</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            {teams.map(team => (
+              <div 
+                key={team.id}
+                className={`p-2 rounded-lg text-center ${
+                  team.ownerId === session?.user?.id 
+                    ? 'bg-green-900/30 border border-green-500/50' 
+                    : 'bg-gray-700/50'
+                }`}
+              >
+                <p className="text-sm font-medium text-white truncate">{team.name}</p>
+                <p className="text-xs text-green-400">{formatCurrency(team.purse)}</p>
               </div>
-            </div>
-
-            {/* Up Next */}
-            <div className="card">
-              <h3 className="font-semibold mb-4">Up Next ({state.pendingPlayers.length})</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {state.pendingPlayers.slice(0, 5).map((player, idx) => (
-                  <div key={player.id} className={`p-2 rounded ${idx === 0 ? 'bg-accent/10 border border-accent/30' : 'bg-surface-light'}`}>
-                    <div className="font-medium text-sm">{player.name}</div>
-                    <div className="text-xs text-gray-400">
-                      {player.category} • {formatMoney(player.basePrice)}
-                    </div>
-                  </div>
-                ))}
-                {state.pendingPlayers.length > 5 && (
-                  <div className="text-xs text-gray-500 text-center py-2">
-                    +{state.pendingPlayers.length - 5} more
-                  </div>
-                )}
-                {state.pendingPlayers.length === 0 && (
-                  <div className="text-sm text-yellow-400 text-center py-4">
-                    Last player!
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div className="card">
-              <h3 className="font-semibold mb-4">Recent Activity</h3>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {state.recentLogs.slice(0, 10).map(log => (
-                  <div key={log.id} className="text-xs p-2 bg-surface-light rounded">
-                    <div className={`${
-                      log.logType === 'sale' ? 'text-green-400' :
-                      log.logType === 'unsold' ? 'text-red-400' :
-                      log.logType === 'bid' ? 'text-yellow-400' : 'text-gray-400'
-                    }`}>
-                      {log.message}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      )}
 
-      {/* No Active Auction - Show Round Selection */}
-      {!state?.isActive && !waitingForNext && !roundCompleted && (
-        <div className="card">
-          <h2 className="text-xl font-semibold mb-6">Select Auction Round</h2>
+        {/* Pending Players Queue */}
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <h3 className="text-lg font-semibold text-white mb-3">
+            📋 Players Queue ({pendingPlayers.length} remaining)
+          </h3>
           
-          {rounds.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {rounds.map(round => (
-                <div key={round.id} className="relative">
-                  <button
-                    onClick={() => setSelectedRound(round.id)}
-                    disabled={round.isCompleted || round.pendingPlayers === 0}
-                    className={`w-full p-4 rounded-xl text-left transition-all ${
-                      selectedRound === round.id 
-                        ? 'bg-accent/20 border-2 border-accent' 
-                        : round.isCompleted || round.pendingPlayers === 0
-                          ? 'bg-surface-light/50 opacity-50 cursor-not-allowed'
-                          : 'bg-surface-light hover:bg-surface border-2 border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold">Round {round.roundNumber}</span>
-                      {round.isCompleted && (
-                        <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
-                          Completed
-                        </span>
-                      )}
-                      {!round.isCompleted && round.pendingPlayers === 0 && (
-                        <span className="text-xs bg-gray-500/20 text-gray-400 px-2 py-1 rounded">
-                          Empty
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-400 mb-2">{round.name}</div>
-                    <div className="text-xs text-gray-500">
-                      {round.pendingPlayers}/{round.totalPlayers} remaining • {round.soldPlayers} sold
-                    </div>
-                  </button>
-                  
-                  {/* Delete Button */}
-                  {isAdmin && (
-                    <div className="absolute top-2 right-2">
-                      {deleteConfirm === round.id ? (
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => deleteRound(round.id)}
-                            className="text-xs bg-red-500 text-white px-2 py-1 rounded"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(null)}
-                            className="text-xs bg-gray-500 text-white px-2 py-1 rounded"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirm(round.id);
-                          }}
-                          className="text-xs text-red-400 hover:text-red-300 p-1"
-                          title="Delete Round"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
-                  )}
+          {pendingPlayers.length === 0 ? (
+            <p className="text-gray-400 text-center py-4">No more players in queue</p>
+          ) : (
+            <div className="grid gap-2">
+              {pendingPlayers.slice(0, 10).map((player, index) => (
+                <div 
+                  key={player.id}
+                  className={`flex justify-between items-center p-3 rounded-lg ${
+                    index === 0 ? 'bg-green-900/30 border border-green-500/30' : 'bg-gray-700/50'
+                  }`}
+                >
+                  <div>
+                    <span className="text-gray-500 mr-2">#{index + 1}</span>
+                    <span className="text-white font-medium">{player.name}</span>
+                    <span className="text-gray-400 ml-2 text-sm">({player.category})</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-green-400">{formatCurrency(player.basePrice)}</span>
+                    {isAdmin && !auctionState?.isActive && (
+                      <button
+                        onClick={() => handleStartAuction(player.id)}
+                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm transition-colors active:scale-95"
+                      >
+                        Start
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
+              {pendingPlayers.length > 10 && (
+                <p className="text-gray-500 text-center py-2">
+                  And {pendingPlayers.length - 10} more players...
+                </p>
+              )}
             </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              <div className="text-4xl mb-4">📋</div>
-              <p>No auction rounds created yet.</p>
-              <p className="text-sm mt-2">Admins can create rounds in the Admin panel.</p>
-            </div>
-          )}
-
-          {isAdmin && selectedRound && (
-            <button
-              onClick={() => executeAction('start')}
-              disabled={actionLoading}
-              className="btn-primary w-full mt-6"
-            >
-              {actionLoading ? 'Starting...' : '▶️ Start Auction'}
-            </button>
-          )}
-
-          {!isAdmin && !session && (
-            <p className="text-center text-gray-500 mt-6">
-              Sign in with Discord to participate in auctions.
-            </p>
           )}
         </div>
-      )}
-
-      {/* Your Team Info */}
-      {userTeam && (
-        <div className="card">
-          <h3 className="font-semibold mb-4">Your Team: {userTeam.name}</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div>
-              <div className="text-2xl font-bold text-accent font-mono">{formatMoney(userTeam.purse)}</div>
-              <div className="text-xs text-gray-500">Remaining Purse</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold">{userTeam.playerCount}/{userTeam.maxSize}</div>
-              <div className="text-xs text-gray-500">Roster Size</div>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
