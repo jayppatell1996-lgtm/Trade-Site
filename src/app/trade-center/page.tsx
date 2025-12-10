@@ -49,9 +49,25 @@ export default function TradeCenterPage() {
     try {
       const res = await fetch('/api/teams');
       const data = await res.json();
-      setTeams(data);
+      
+      // API returns { teams, players } - combine them
+      if (data && data.teams && Array.isArray(data.teams)) {
+        const playersArray = Array.isArray(data.players) ? data.players : [];
+        const teamsWithPlayers = data.teams.map((team: any) => ({
+          ...team,
+          players: playersArray.filter((p: any) => p.teamId === team.id) || [],
+        }));
+        setTeams(teamsWithPlayers);
+      } else if (Array.isArray(data)) {
+        // Fallback for old format
+        setTeams(data);
+      } else {
+        console.error('Unexpected API response format:', data);
+        setTeams([]);
+      }
     } catch (error) {
       console.error('Error fetching teams:', error);
+      setTeams([]);
     } finally {
       setLoading(false);
     }

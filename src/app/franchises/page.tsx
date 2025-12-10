@@ -30,11 +30,31 @@ export default function FranchisesPage() {
       const res = await fetch('/api/teams');
       const data = await res.json();
       if (res.ok) {
-        setTeams(data.teams || []);
-        setPlayers(data.players || []);
+        // Handle both array and object responses
+        if (Array.isArray(data)) {
+          // Old format: array of teams with embedded players
+          setTeams(data);
+          const allPlayers: Player[] = [];
+          data.forEach((team: any) => {
+            if (team.players && Array.isArray(team.players)) {
+              team.players.forEach((p: any) => allPlayers.push({ ...p, teamId: team.id }));
+            }
+          });
+          setPlayers(allPlayers);
+        } else if (data.teams && data.players) {
+          // New format: { teams, players }
+          setTeams(Array.isArray(data.teams) ? data.teams : []);
+          setPlayers(Array.isArray(data.players) ? data.players : []);
+        } else {
+          // Fallback
+          setTeams([]);
+          setPlayers([]);
+        }
       }
     } catch (error) {
       console.error('Error fetching teams:', error);
+      setTeams([]);
+      setPlayers([]);
     } finally {
       setLoading(false);
     }
