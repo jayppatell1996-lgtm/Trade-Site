@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db';
-import { auctionState, auctionPlayers, auctionRounds, teams, auctionLogs, players } from '@/db/schema';
+import { auctionState, auctionPlayers, auctionRounds, teams, auctionLogs, players, unsoldPlayers } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
+
+// Simple lock to prevent concurrent auto-expiry processing
+let autoExpiryLock = false;
 
 export async function GET() {
   try {
@@ -16,6 +19,120 @@ export async function GET() {
         isPaused: false,
       }).returning();
       state = newState[0];
+    }
+
+    // Auto-process expired auction if needed (server-side backup)
+    if (
+      state.isActive && 
+      state.currentPlayerId && 
+      !state.isPaused && 
+      state.timerEndTime &&
+      !autoExpiryLock
+    ) {
+      const timerEnd = Number(state.timerEndTime);
+      const now = Date.now();
+      // Timer expired more than 2 seconds ago
+      if (timerEnd > 1000000000000 && now - timerEnd > 2000) {
+        autoExpiryLock = true;
+        try {
+          console.log('Server auto-processing expired auction');
+          
+          if (state.highestBidderId) {
+            // Auto-sell to highest bidder
+            const currentPlayer = await db.select()
+              .from(auctionPlayers)
+              .where(eq(auctionPlayers.id, state.currentPlayerId));
+            
+            const winningTeam = await db.select()
+              .from(teams)
+              .where(eq(teams.ownerId, state.highestBidderId));
+            
+            if (currentPlayer[0] && winningTeam[0] && winningTeam[0].purse >= (state.currentBid || 0)) {
+              // Update player as sold
+              await db.update(auctionPlayers)
+                .set({
+                  status: 'sold',
+                  soldTo: winningTeam[0].name,
+                  soldFor: state.currentBid,
+                  soldAt: new Date().toISOString(),
+                })
+                .where(eq(auctionPlayers.id, state.currentPlayerId));
+
+              // Deduct from team purse
+              await db.update(teams)
+                .set({ purse: winningTeam[0].purse - (state.currentBid || 0) })
+                .where(eq(teams.id, winningTeam[0].id));
+
+              // Add player to team roster
+              const playerIdToUse = currentPlayer[0].playerId || `auction-${Date.now()}`;
+              await db.insert(players).values({
+                playerId: playerIdToUse,
+                name: currentPlayer[0].name,
+                teamId: winningTeam[0].id,
+                category: currentPlayer[0].category || null,
+                boughtFor: state.currentBid,
+              });
+
+              // Log the sale
+              await db.insert(auctionLogs).values({
+                roundId: state.currentRoundId,
+                message: `${currentPlayer[0].name} sold to ${winningTeam[0].name} for $${(state.currentBid || 0).toLocaleString()}`,
+                logType: 'sale',
+                timestamp: new Date().toISOString(),
+              });
+
+              console.log(`Auto-sold ${currentPlayer[0].name} to ${winningTeam[0].name}`);
+            }
+          } else {
+            // No bidder - mark as unsold
+            const currentPlayer = await db.select()
+              .from(auctionPlayers)
+              .where(eq(auctionPlayers.id, state.currentPlayerId));
+            
+            if (currentPlayer[0]) {
+              await db.update(auctionPlayers)
+                .set({ status: 'unsold' })
+                .where(eq(auctionPlayers.id, state.currentPlayerId));
+
+              await db.insert(unsoldPlayers).values({
+                name: currentPlayer[0].name,
+                category: currentPlayer[0].category || 'Unknown',
+                basePrice: currentPlayer[0].basePrice,
+                originalRoundId: state.currentRoundId,
+                addedAt: new Date().toISOString(),
+              });
+
+              await db.insert(auctionLogs).values({
+                roundId: state.currentRoundId,
+                message: `${currentPlayer[0].name} went unsold (auto-expired)`,
+                logType: 'unsold',
+                timestamp: new Date().toISOString(),
+              });
+
+              console.log(`Auto-marked ${currentPlayer[0].name} as unsold`);
+            }
+          }
+
+          // Update state
+          await db.update(auctionState)
+            .set({
+              currentPlayerId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+              lastUpdated: new Date().toISOString(),
+            })
+            .where(eq(auctionState.id, state.id));
+
+          // Refresh state after processing
+          const updatedStates = await db.select().from(auctionState);
+          state = updatedStates[0];
+        } finally {
+          setTimeout(() => { autoExpiryLock = false; }, 1000);
+        }
+      }
     }
 
     // Get current player details if there's an active auction

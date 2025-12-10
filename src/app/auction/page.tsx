@@ -104,20 +104,34 @@ export default function AuctionPage() {
       ]);
       const stateData = await stateRes.json();
       const roundsData = await roundsRes.json();
+      
+      const prevPlayerId = state?.currentPlayerId;
       setState(stateData);
       setRounds(Array.isArray(roundsData) ? roundsData : roundsData.rounds || []);
 
-      // Sync timer from server (only if not recently bid - to avoid jitter)
+      // Sync timer from server
       const now = Date.now();
-      if (now - lastBidTimeRef.current > 800) {
-        const serverTime = stateData.remainingTime;
+      const serverTime = stateData.remainingTime;
+      
+      // If new player started, reset timer fully
+      if (stateData.currentPlayerId && stateData.currentPlayerId !== prevPlayerId) {
+        console.log('New player detected, resetting timer to', serverTime || INITIAL_TIMER);
+        const newTime = typeof serverTime === 'number' && serverTime > 0 ? serverTime : INITIAL_TIMER;
+        setTargetTimer(newTime);
+        setDisplayTimer(newTime);
+        timerExpiredRef.current = false;
+        setWaitingForNext(false);
+      } else if (now - lastBidTimeRef.current > 800) {
+        // Only sync if not recently bid (to avoid jitter)
         if (typeof serverTime === 'number' && serverTime >= 0) {
           // Smooth sync - only update if significantly different
           if (stateData.isPaused || !stateData.currentPlayerId) {
             setTargetTimer(serverTime);
             setDisplayTimer(serverTime);
-          } else if (Math.abs(serverTime - targetTimer) > 1.5) {
+          } else if (Math.abs(serverTime - displayTimer) > 2) {
+            // Gradually sync if significantly different
             setTargetTimer(serverTime);
+            setDisplayTimer(serverTime);
           }
         }
       }
@@ -133,7 +147,7 @@ export default function AuctionPage() {
         if (round?.isCompleted) {
           setRoundCompleted(true);
         }
-      } else {
+      } else if (stateData.currentPlayerId) {
         setWaitingForNext(false);
         setRoundCompleted(false);
       }
@@ -142,13 +156,31 @@ export default function AuctionPage() {
     } finally {
       setLoading(false);
     }
-  }, [targetTimer]);
+  }, [state?.currentPlayerId, displayTimer]);
 
   // Smooth timer animation using requestAnimationFrame
+  const timerValueRef = useRef<number>(displayTimer);
+  
+  // Update ref when displayTimer changes externally (bids, new player, etc)
   useEffect(() => {
-    if (!state?.isActive || state?.isPaused || !state?.currentPlayerId) {
+    timerValueRef.current = displayTimer;
+  }, [displayTimer]);
+  
+  useEffect(() => {
+    // If paused or no player, stop animation
+    if (!state?.isActive || !state?.currentPlayerId) {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      return;
+    }
+    
+    // If paused, stop animation but don't clear timer
+    if (state?.isPaused) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
       return;
     }
@@ -160,26 +192,49 @@ export default function AuctionPage() {
       const delta = (now - lastTickRef.current) / 1000;
       lastTickRef.current = now;
       
-      setDisplayTimer(prev => {
-        const newValue = Math.max(0, prev - delta);
-        return newValue;
-      });
+      // Use ref for current value to handle external updates
+      timerValueRef.current = timerValueRef.current - delta;
       
+      // Stop at 0
+      if (timerValueRef.current <= 0) {
+        timerValueRef.current = 0;
+        setDisplayTimer(0);
+        animationFrameRef.current = null;
+        return;
+      }
+      
+      setDisplayTimer(timerValueRef.current);
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     
-    animationFrameRef.current = requestAnimationFrame(animate);
+    // Only start if timer > 0
+    if (timerValueRef.current > 0) {
+      animationFrameRef.current = requestAnimationFrame(animate);
+    }
     
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
   }, [state?.isActive, state?.isPaused, state?.currentPlayerId]);
 
-  // Handle timer expiry
+  // Handle timer expiry - this gets called when timer hits 0
   const handleTimerExpiry = useCallback(async () => {
-    if (timerExpiredRef.current || !state?.currentPlayerId) return;
+    // Double-check we should actually expire
+    if (timerExpiredRef.current) {
+      console.log('Timer expiry already in progress, skipping');
+      return;
+    }
+    
+    // Don't process if we're already waiting for next or no player
+    if (waitingForNext || !state?.currentPlayerId) {
+      console.log('Not processing timer expiry - already waiting or no player');
+      return;
+    }
+    
+    console.log('Timer expiry triggered, highestBidder:', state?.highestBidderTeam);
     timerExpiredRef.current = true;
     
     try {
@@ -190,18 +245,53 @@ export default function AuctionPage() {
       });
 
       const data = await res.json();
+      console.log('Timer expiry response:', data);
+      
       if (res.ok) {
-        setMessage({ type: 'success', text: data.message });
+        // Use the response data directly to update UI
+        if (data.playerName && data.teamName) {
+          // Sale was made - update state with sale info
+          setState(prev => prev ? {
+            ...prev,
+            currentPlayerId: null,
+            currentPlayer: null,
+            currentBid: 0,
+            highestBidderId: null,
+            highestBidderTeam: null,
+            lastSale: {
+              playerName: data.playerName,
+              teamName: data.teamName,
+              amount: data.amount || 0,
+            }
+          } : prev);
+        }
+        
+        setMessage({ type: 'success', text: data.message || 'Timer expired' });
         setWaitingForNext(true);
+        
+        // Delay fetch to allow server to complete
+        setTimeout(() => {
+          fetchState();
+        }, 500);
+      } else {
+        console.error('Timer expiry failed:', data.error);
+        // Still go to waiting state on error to prevent getting stuck
+        setWaitingForNext(true);
+        fetchState();
       }
     } catch (error) {
       console.error('Timer expiry error:', error);
+      // Still go to waiting state on error to prevent getting stuck
+      setWaitingForNext(true);
+      fetchState();
     }
     
+    // Reset the ref after a delay to allow for next player
     setTimeout(() => {
       timerExpiredRef.current = false;
-    }, 2000);
-  }, [state?.currentPlayerId]);
+      console.log('Timer expiry ref reset');
+    }, 3000);
+  }, [fetchState, waitingForNext, state?.currentPlayerId, state?.highestBidderTeam]);
 
   // Polling for real-time updates
   useEffect(() => {
@@ -210,17 +300,38 @@ export default function AuctionPage() {
     return () => clearInterval(interval);
   }, [fetchState]);
 
-  // Watch for timer expiry - with small buffer to allow last-second bids
+  // Watch for timer expiry - trigger when timer reaches 0
   useEffect(() => {
-    if (state?.isActive && 
-        state?.currentPlayerId && 
-        !state?.isPaused && 
-        displayTimer <= -0.5 && // Allow -0.5s buffer for last second bids
-        !timerExpiredRef.current &&
-        !waitingForNext) {
+    // Check if we should trigger timer expiry
+    const shouldExpire = 
+      state?.isActive && 
+      state?.currentPlayerId && 
+      !state?.isPaused && 
+      displayTimer <= 0 && // Timer has hit 0
+      !timerExpiredRef.current &&
+      !waitingForNext;
+    
+    if (shouldExpire) {
+      console.log('Timer expiry conditions met, displayTimer:', displayTimer, 'highestBidder:', state?.highestBidderTeam);
       handleTimerExpiry();
     }
-  }, [displayTimer, state?.isActive, state?.currentPlayerId, state?.isPaused, waitingForNext, handleTimerExpiry]);
+  }, [displayTimer, state?.isActive, state?.currentPlayerId, state?.isPaused, state?.highestBidderTeam, waitingForNext, handleTimerExpiry]);
+
+  // Backup timer expiry - if server shows timer should have expired
+  useEffect(() => {
+    if (
+      state?.isActive && 
+      state?.currentPlayerId && 
+      !state?.isPaused && 
+      state?.remainingTime !== undefined &&
+      state.remainingTime <= 0 &&
+      !timerExpiredRef.current &&
+      !waitingForNext
+    ) {
+      console.log('Server says timer expired, triggering expiry');
+      handleTimerExpiry();
+    }
+  }, [state?.isActive, state?.currentPlayerId, state?.isPaused, state?.remainingTime, waitingForNext, handleTimerExpiry]);
 
   const executeAction = async (action: string) => {
     setActionLoading(true);

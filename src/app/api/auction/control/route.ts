@@ -486,9 +486,8 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Auction is not paused' }, { status: 400 });
         }
 
-        // Resume with the remaining time that was stored when paused
-        const remainingMs = state.pausedTimeRemaining || (BID_INCREMENT_TIME * 1000);
-        const newEndTime = Date.now() + remainingMs;
+        // Resume with FULL 12 seconds (reset the timer as requested)
+        const newEndTime = Date.now() + (BID_INCREMENT_TIME * 1000);
         
         await db.update(auctionState)
           .set({
@@ -499,13 +498,13 @@ export async function POST(request: NextRequest) {
           })
           .where(eq(auctionState.id, state.id));
 
-        await logAction(state.currentRoundId, 'Auction resumed', 'resume');
+        await logAction(state.currentRoundId, 'Auction resumed (timer reset to 12s)', 'resume');
 
         releaseControlLock();
         return NextResponse.json({ 
           success: true, 
           message: 'Auction resumed',
-          remainingTime: Math.ceil(remainingMs / 1000)
+          remainingTime: BID_INCREMENT_TIME
         });
       }
 
