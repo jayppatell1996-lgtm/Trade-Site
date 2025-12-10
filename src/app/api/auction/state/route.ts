@@ -59,11 +59,23 @@ export async function GET() {
     let remainingTime = 0;
     if (state.timerEndTime && state.isActive) {
       if (state.isPaused) {
-        // When paused, timerEndTime stores the remaining milliseconds
-        remainingTime = Math.max(0, Math.floor(state.timerEndTime / 1000));
+        // When paused, timerEndTime stores the remaining milliseconds (should be < 60000)
+        if (state.timerEndTime < 60000) {
+          remainingTime = Math.max(0, Math.floor(state.timerEndTime / 1000));
+        } else {
+          // Fallback - might be corrupted, use default
+          remainingTime = 10;
+        }
       } else {
         // When active, timerEndTime is the actual end timestamp
-        remainingTime = Math.max(0, Math.floor((state.timerEndTime - Date.now()) / 1000));
+        // Validate it's a reasonable timestamp (within last hour to next hour)
+        const now = Date.now();
+        if (state.timerEndTime > now - 3600000 && state.timerEndTime < now + 3600000) {
+          remainingTime = Math.max(0, Math.floor((state.timerEndTime - now) / 1000));
+        } else {
+          // Corrupted timestamp - show 0
+          remainingTime = 0;
+        }
       }
     }
 

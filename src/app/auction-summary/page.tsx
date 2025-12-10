@@ -31,8 +31,12 @@ interface AuctionRound {
   id: number;
   roundNumber: number;
   name: string;
-  isActive: number;
-  isCompleted: number;
+  isActive: number | boolean;
+  isCompleted: number | boolean;
+  totalPlayers?: number;
+  pendingPlayers?: number;
+  soldPlayers?: number;
+  unsoldPlayers?: number;
 }
 
 interface Stats {
@@ -81,7 +85,8 @@ export default function AuctionSummaryPage() {
 
       if (roundsRes.ok) {
         const roundsData = await roundsRes.json();
-        setRounds(roundsData.rounds || []);
+        // Rounds API returns array directly, not { rounds: [...] }
+        setRounds(Array.isArray(roundsData) ? roundsData : roundsData.rounds || []);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -161,13 +166,14 @@ export default function AuctionSummaryPage() {
     return true;
   });
 
-  const formatAmount = (amount: number) => {
-    if (amount >= 1000000) {
-      return `$${(amount / 1000000).toFixed(2)}M`;
-    } else if (amount >= 1000) {
-      return `$${(amount / 1000).toFixed(0)}K`;
+  const formatAmount = (amount: number | null | undefined) => {
+    const num = Number(amount) || 0;
+    if (num >= 1000000) {
+      return `$${(num / 1000000).toFixed(2)}M`;
+    } else if (num >= 1000) {
+      return `$${(num / 1000).toFixed(0)}K`;
     }
-    return `$${amount.toFixed(0)}`;
+    return `$${num.toFixed(0)}`;
   };
 
   const getLogIcon = (type: string | null) => {
@@ -307,6 +313,61 @@ export default function AuctionSummaryPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Auction Rounds List */}
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-4">📋 Auction Rounds</h2>
+        {rounds.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {rounds.map((round) => (
+              <div 
+                key={round.id} 
+                className={`p-4 rounded-lg border ${
+                  round.isCompleted 
+                    ? 'bg-green-500/10 border-green-500/30' 
+                    : round.isActive 
+                      ? 'bg-accent/10 border-accent/30'
+                      : 'bg-surface-light border-border'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Round {round.roundNumber}</span>
+                  {round.isCompleted ? (
+                    <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Completed</span>
+                  ) : round.isActive ? (
+                    <span className="text-xs bg-accent/20 text-accent px-2 py-1 rounded animate-pulse">Live</span>
+                  ) : (
+                    <span className="text-xs bg-gray-500/20 text-gray-400 px-2 py-1 rounded">Pending</span>
+                  )}
+                </div>
+                <div className="text-sm text-gray-400 mb-3">{round.name}</div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="bg-surface p-2 rounded">
+                    <div className="text-lg font-bold text-blue-400">{round.pendingPlayers || 0}</div>
+                    <div className="text-gray-500">Pending</div>
+                  </div>
+                  <div className="bg-surface p-2 rounded">
+                    <div className="text-lg font-bold text-green-400">{round.soldPlayers || 0}</div>
+                    <div className="text-gray-500">Sold</div>
+                  </div>
+                  <div className="bg-surface p-2 rounded">
+                    <div className="text-lg font-bold text-red-400">{round.unsoldPlayers || 0}</div>
+                    <div className="text-gray-500">Unsold</div>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 mt-3 text-center">
+                  Total: {round.totalPlayers || 0} players
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            <div className="text-4xl mb-2">📋</div>
+            <p>No auction rounds created yet</p>
+          </div>
+        )}
       </div>
 
       {/* Auction Logs */}

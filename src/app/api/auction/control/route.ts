@@ -317,13 +317,23 @@ export async function POST(request: NextRequest) {
       }
 
       case 'pause': {
+        // Check if already paused
+        if (state.isPaused) {
+          return NextResponse.json({ error: 'Auction is already paused' }, { status: 400 });
+        }
+
         // Calculate remaining time and store it
-        const remainingMs = state.timerEndTime ? Math.max(0, state.timerEndTime - Date.now()) : 0;
+        // Only calculate from timestamp if it looks like a valid future timestamp
+        let remainingMs = BID_INCREMENT_TIME * 1000; // Default 10 seconds
+        if (state.timerEndTime && state.timerEndTime > Date.now() - 60000) {
+          // timerEndTime is a valid future timestamp (within reason)
+          remainingMs = Math.max(1000, state.timerEndTime - Date.now()); // At least 1 second
+        }
         
         await db.update(auctionState)
           .set({
             isPaused: true,
-            // Store remaining time in timerEndTime as negative (flag that it's remaining time, not end time)
+            // Store remaining time in timerEndTime (will be < 60000 typically)
             timerEndTime: remainingMs,
             lastUpdated: new Date().toISOString(),
           })
@@ -335,8 +345,20 @@ export async function POST(request: NextRequest) {
       }
 
       case 'resume': {
+        // Check if actually paused
+        if (!state.isPaused) {
+          return NextResponse.json({ error: 'Auction is not paused' }, { status: 400 });
+        }
+
         // Resume with the remaining time that was stored when paused
-        const storedRemainingMs = state.timerEndTime || (BID_INCREMENT_TIME * 1000);
+        let storedRemainingMs = state.timerEndTime || (BID_INCREMENT_TIME * 1000);
+        
+        // Validate - remaining time should be reasonable (< 1 minute = 60000ms)
+        // If it's larger, it's probably a corrupted timestamp
+        if (storedRemainingMs > 60000) {
+          storedRemainingMs = BID_INCREMENT_TIME * 1000; // Default to 10 seconds
+        }
+        
         const newEndTime = Date.now() + storedRemainingMs;
         
         await db.update(auctionState)

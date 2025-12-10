@@ -95,12 +95,18 @@ export default function AuctionPage() {
       const stateData = await stateRes.json();
       const roundsData = await roundsRes.json();
       setState(stateData);
-      setRounds(roundsData);
+      // Rounds API returns array directly, not { rounds: [...] }
+      setRounds(Array.isArray(roundsData) ? roundsData : roundsData.rounds || []);
 
-      // Update local timer from server
-      if (stateData.remainingTime !== lastServerTimeRef.current) {
-        setLocalTimer(stateData.remainingTime);
-        lastServerTimeRef.current = stateData.remainingTime;
+      // Update local timer from server (validate it's reasonable)
+      const serverTime = stateData.remainingTime;
+      if (serverTime !== lastServerTimeRef.current && serverTime >= 0 && serverTime <= 60) {
+        setLocalTimer(serverTime);
+        lastServerTimeRef.current = serverTime;
+      } else if (serverTime > 60) {
+        // Timer seems corrupted, reset to 0
+        setLocalTimer(0);
+        lastServerTimeRef.current = 0;
       }
 
       // Check states
