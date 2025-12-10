@@ -1,275 +1,285 @@
-import { getLeagueStats, getRecentTrades } from '@/lib/queries';
-import { Users, Zap, TrendingUp, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
-import Link from 'next/link';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { formatCurrency } from '@/lib/auction';
+
+interface Team {
+  id: number;
+  name: string;
+  purse: number;
+  playerCount: number;
+  maxSize: number;
+}
+
+interface Round {
+  id: number;
+  roundNumber: number;
+  name: string;
+  status: string;
+  totalPlayers: number;
+  soldPlayers: number;
+  unsoldPlayers: number;
+}
+
+interface AuctionState {
+  status: string;
+  currentPlayer?: {
+    name: string;
+    basePrice: number;
+  };
+  currentBid?: number;
+  highestBidderName?: string;
+}
+
+export default function Dashboard() {
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [auctionState, setAuctionState] = useState<AuctionState | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch teams
+        const teamsRes = await fetch('/api/teams');
+        const teamsData = await teamsRes.json();
+        setTeams(teamsData);
+
+        // Fetch rounds
+        const roundsRes = await fetch('/api/rounds');
+        const roundsData = await roundsRes.json();
+        setRounds(roundsData);
+
+        // Fetch auction state
+        const auctionRes = await fetch('/api/auction');
+        const auctionData = await auctionRes.json();
+        setAuctionState({
+          status: auctionData.state?.status || 'idle',
+          currentPlayer: auctionData.currentPlayer,
+          currentBid: auctionData.state?.currentBid,
+          highestBidderName: auctionData.state?.highestBidderName,
+        });
+      } catch (error) {
+        console.error('Failed to fetch data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    // Poll for auction state updates
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Calculate stats
+  const totalTeams = teams.length;
+  const totalPlayers = teams.reduce((sum, t) => sum + t.playerCount, 0);
+  const totalPurse = teams.reduce((sum, t) => sum + t.purse, 0);
+  const totalAuctionPlayers = rounds.reduce((sum, r) => sum + r.totalPlayers, 0);
+  const soldPlayers = rounds.reduce((sum, r) => sum + r.soldPlayers, 0);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-xl">Loading dashboard...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold mb-2">🏏 League Dashboard</h1>
+          <p className="text-gray-400">Overview of your cricket league</p>
+        </div>
+
+        {/* Live Auction Banner */}
+        {auctionState?.status === 'active' && (
+          <Link href="/auction">
+            <div className="bg-red-600 rounded-xl p-6 mb-8 cursor-pointer hover:bg-red-700 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="animate-pulse text-3xl">🔴</span>
+                  <div>
+                    <h2 className="text-xl font-bold">LIVE AUCTION</h2>
+                    {auctionState.currentPlayer && (
+                      <p className="text-red-200">
+                        Now Bidding: {auctionState.currentPlayer.name} - 
+                        Current: {formatCurrency(auctionState.currentBid || auctionState.currentPlayer.basePrice)}
+                        {auctionState.highestBidderName && ` (${auctionState.highestBidderName})`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <span className="text-2xl">→</span>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <StatCard
+            label="Total Teams"
+            value={totalTeams.toString()}
+            icon="🏏"
+          />
+          <StatCard
+            label="Players Rostered"
+            value={totalPlayers.toString()}
+            icon="👥"
+          />
+          <StatCard
+            label="Total Purse Remaining"
+            value={formatCurrency(totalPurse)}
+            icon="💰"
+            color="green"
+          />
+          <StatCard
+            label="Auction Progress"
+            value={`${soldPlayers}/${totalAuctionPlayers}`}
+            icon="📊"
+            color="yellow"
+          />
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Team Leaderboard */}
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Team Standings</h2>
+              <Link href="/franchises" className="text-indigo-400 hover:text-indigo-300 text-sm">
+                View All →
+              </Link>
+            </div>
+            <div className="space-y-3">
+              {teams
+                .sort((a, b) => b.playerCount - a.playerCount)
+                .slice(0, 5)
+                .map((team, idx) => (
+                  <div 
+                    key={team.id}
+                    className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-400 font-mono w-6">#{idx + 1}</span>
+                      <span className="font-semibold">{team.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-400">{team.playerCount} players</div>
+                      <div className="text-green-400 text-sm">{formatCurrency(team.purse)}</div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+
+          {/* Auction Rounds */}
+          <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Auction Rounds</h2>
+              <Link href="/auction" className="text-indigo-400 hover:text-indigo-300 text-sm">
+                Go to Auction →
+              </Link>
+            </div>
+            <div className="space-y-3">
+              {rounds.map((round) => (
+                <div 
+                  key={round.id}
+                  className="p-3 bg-gray-700/50 rounded-lg"
+                >
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold">{round.name}</span>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      round.status === 'active' ? 'bg-green-600' :
+                      round.status === 'completed' ? 'bg-gray-600' :
+                      'bg-yellow-600'
+                    }`}>
+                      {round.status}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm text-gray-400">
+                    <span>{round.totalPlayers} players</span>
+                    <span>
+                      {round.soldPlayers} sold | {round.unsoldPlayers} unsold
+                    </span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="mt-2 w-full h-1 bg-gray-600 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-green-500"
+                      style={{ 
+                        width: `${round.totalPlayers > 0 
+                          ? ((round.soldPlayers + round.unsoldPlayers) / round.totalPlayers) * 100 
+                          : 0}%` 
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="mt-8 grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Link href="/auction">
+            <div className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center cursor-pointer transition-colors border border-gray-700">
+              <span className="text-3xl mb-2 block">🔴</span>
+              <span className="font-semibold">Live Auction</span>
+            </div>
+          </Link>
+          <Link href="/franchises">
+            <div className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center cursor-pointer transition-colors border border-gray-700">
+              <span className="text-3xl mb-2 block">🏏</span>
+              <span className="font-semibold">Franchises</span>
+            </div>
+          </Link>
+          <Link href="/trades">
+            <div className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center cursor-pointer transition-colors border border-gray-700">
+              <span className="text-3xl mb-2 block">🔄</span>
+              <span className="font-semibold">Trade Center</span>
+            </div>
+          </Link>
+          <Link href="/admin">
+            <div className="bg-gray-800 hover:bg-gray-700 rounded-xl p-6 text-center cursor-pointer transition-colors border border-gray-700">
+              <span className="text-3xl mb-2 block">🔐</span>
+              <span className="font-semibold">Admin Panel</span>
+            </div>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function StatCard({ 
   label, 
   value, 
-  subtitle, 
-  icon: Icon 
+  icon, 
+  color = 'white' 
 }: { 
   label: string; 
-  value: string | number; 
-  subtitle: string; 
-  icon: any;
+  value: string; 
+  icon: string; 
+  color?: string;
 }) {
-  return (
-    <div className="card stat-card">
-      <div className="stat-label">
-        {label}
-        <Icon size={20} style={{ color: 'var(--accent-green)' }} />
-      </div>
-      <div className="stat-value">{value}</div>
-      <div className="stat-subtitle">{subtitle}</div>
-    </div>
-  );
-}
-
-function FranchiseStatus({ 
-  name, 
-  playerCount, 
-  maxSize 
-}: { 
-  name: string; 
-  playerCount: number; 
-  maxSize: number;
-}) {
-  const percentage = Math.round((playerCount / maxSize) * 100);
+  const colorClass = color === 'green' ? 'text-green-400' : 
+                     color === 'yellow' ? 'text-yellow-400' : 
+                     'text-white';
   
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '16px',
-      padding: '12px 0',
-      borderBottom: '1px solid var(--border-color)',
-    }}>
-      <div className="badge badge-team">{name}</div>
-      <div style={{ flex: 1 }}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          marginBottom: '6px',
-          fontSize: '13px',
-        }}>
-          <span style={{ color: 'var(--text-secondary)' }}>{playerCount} Players</span>
-          <span style={{ color: 'var(--text-muted)' }}>{percentage}% Cap</span>
-        </div>
-        <div className="progress-bar">
-          <div 
-            className="progress-bar-fill" 
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
+    <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-2xl">{icon}</span>
+        <span className="text-gray-400 text-sm">{label}</span>
       </div>
-    </div>
-  );
-}
-
-function TradeCard({ 
-  trade 
-}: { 
-  trade: {
-    timestamp: string;
-    team1Name: string;
-    team2Name: string;
-    players1: { id: string; name: string }[];
-    players2: { id: string; name: string }[];
-  };
-}) {
-  const date = new Date(trade.timestamp);
-  const dateStr = date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric' 
-  });
-  const timeStr = date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit',
-    hour12: true 
-  });
-
-  return (
-    <div className="card" style={{ marginBottom: '12px' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '16px',
-      }}>
-        <span style={{ 
-          fontFamily: 'JetBrains Mono, monospace', 
-          fontSize: '13px',
-          color: 'var(--text-muted)',
-        }}>
-          {dateStr} • {timeStr}
-        </span>
-        <span className="badge badge-success">COMPLETED</span>
-      </div>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Team 1 sending */}
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginBottom: '8px',
-          }}>
-            <span className="badge badge-team">{trade.team1Name}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>sent</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {trade.players1.map(p => (
-              <div key={p.id} className="player-chip outgoing">
-                <span style={{ color: 'var(--accent-red)' }}>−</span>
-                {p.name}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="trade-arrow">
-          <ArrowLeftRight size={18} />
-        </div>
-
-        {/* Team 2 sending */}
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginBottom: '8px',
-          }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>sent</span>
-            <span className="badge badge-team">{trade.team2Name}</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {trade.players2.map(p => (
-              <div key={p.id} className="player-chip incoming">
-                <span style={{ color: 'var(--accent-green)' }}>+</span>
-                {p.name}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default async function Dashboard() {
-  const stats = await getLeagueStats();
-  const recentTrades = await getRecentTrades(5);
-
-  return (
-    <div className="container" style={{ paddingTop: '32px' }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: '32px',
-      }}>
-        <div>
-          <h1 style={{ 
-            fontSize: '32px', 
-            fontWeight: 700, 
-            marginBottom: '8px',
-            letterSpacing: '-0.5px',
-          }}>
-            LEAGUE DASHBOARD
-          </h1>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Real-time market analysis and roster tracking.
-          </p>
-        </div>
-        <Link href="/trade-center" className="btn btn-primary">
-          <ArrowUpRight size={18} />
-          NEW TRADE PROPOSAL
-        </Link>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="stats-grid" style={{ marginBottom: '32px' }}>
-        <StatCard 
-          label="Active Franchises" 
-          value={stats.totalTeams}
-          subtitle="Teams competing this season"
-          icon={Users}
-        />
-        <StatCard 
-          label="Player Pool" 
-          value={stats.totalPlayers}
-          subtitle="Total active contracts"
-          icon={Zap}
-        />
-        <StatCard 
-          label="Market Volume" 
-          value={stats.totalTrades}
-          subtitle="Completed transactions"
-          icon={TrendingUp}
-        />
-      </div>
-
-      {/* Main Content Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 400px',
-        gap: '24px',
-      }}>
-        {/* Recent Market Activity */}
-        <div>
-          <h2 style={{ 
-            fontSize: '14px', 
-            fontWeight: 600, 
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            color: 'var(--text-secondary)',
-          }}>
-            Recent Market Activity
-          </h2>
-          {recentTrades.length > 0 ? (
-            recentTrades.map(trade => (
-              <TradeCard key={trade.id} trade={trade} />
-            ))
-          ) : (
-            <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-              <p style={{ color: 'var(--text-muted)' }}>No trades yet</p>
-            </div>
-          )}
-        </div>
-
-        {/* Franchise Status */}
-        <div>
-          <h2 style={{ 
-            fontSize: '14px', 
-            fontWeight: 600, 
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            color: 'var(--text-secondary)',
-          }}>
-            Franchise Status
-          </h2>
-          <div className="card">
-            {stats.teams
-              .sort((a, b) => b.playerCount - a.playerCount)
-              .map(team => (
-                <FranchiseStatus 
-                  key={team.id}
-                  name={team.name}
-                  playerCount={team.playerCount}
-                  maxSize={team.maxSize}
-                />
-              ))
-            }
-          </div>
-        </div>
-      </div>
+      <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>
     </div>
   );
 }

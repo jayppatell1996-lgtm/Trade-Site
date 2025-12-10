@@ -1,6 +1,6 @@
 {
-  "name": "wispbyte-league",
-  "version": "1.0.0",
+  "name": "trade-site-upgrade",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,23 +9,26 @@
     "lint": "next lint",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "npx tsx src/scripts/seed.ts"
   },
   "dependencies": {
-    "@libsql/client": "^0.14.0",
-    "drizzle-orm": "^0.36.0",
-    "lucide-react": "^0.460.0",
-    "next": "^15.0.3",
-    "next-auth": "^4.24.10",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "@libsql/client": "^0.6.0",
+    "drizzle-orm": "^0.30.0",
+    "next": "14.2.0",
+    "react": "^18",
+    "react-dom": "^18"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "drizzle-kit": "^0.28.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.4.19",
+    "drizzle-kit": "^0.21.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5"
   }
 }

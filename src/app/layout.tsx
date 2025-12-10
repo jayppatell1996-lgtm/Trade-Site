@@ -1,36 +1,14 @@
-import './globals.css';
 import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
 import Link from 'next/link';
-import { LayoutGrid, ArrowLeftRight, Users } from 'lucide-react';
-import AuthProvider from '@/components/AuthProvider';
-import UserNav from '@/components/UserNav';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Wispbyte League',
-  description: 'Fantasy cricket league management',
+  title: 'Trade Site - Cricket League',
+  description: 'Manage your cricket league teams, trades, and auctions',
 };
-
-function NavLink({ href, children, icon: Icon }: { href: string; children: React.ReactNode; icon: any }) {
-  return (
-    <Link 
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '8px 16px',
-        borderRadius: '8px',
-        fontSize: '14px',
-        fontWeight: 500,
-        color: 'var(--text-secondary)',
-        transition: 'all 0.2s ease',
-      }}
-    >
-      <Icon size={18} />
-      {children}
-    </Link>
-  );
-}
 
 export default function RootLayout({
   children,
@@ -39,62 +17,56 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <AuthProvider>
-          <header style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-            background: 'var(--bg-primary)',
-            borderBottom: '1px solid var(--border-color)',
-          }}>
-            <div className="container" style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              height: '64px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-                <Link href="/" style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  fontWeight: 700,
-                  fontSize: '18px',
-                }}>
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    background: 'var(--accent-green)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--bg-primary)',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontWeight: 700,
-                    fontSize: '14px',
-                  }}>
-                    W
-                  </div>
-                  WISPBYTE LEAGUE
+      <body className={`${inter.className} bg-gray-900 text-white`}>
+        {/* Navigation */}
+        <nav className="bg-gray-800 border-b border-gray-700">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center justify-between h-16">
+              {/* Logo */}
+              <Link href="/" className="flex items-center gap-2">
+                <span className="text-2xl">🏏</span>
+                <span className="font-bold text-xl">League Hub</span>
+              </Link>
+
+              {/* Nav Links */}
+              <div className="flex items-center gap-6">
+                <Link 
+                  href="/" 
+                  className="text-gray-300 hover:text-white transition-colors"
+                >
+                  Dashboard
                 </Link>
-                
-                <nav style={{ display: 'flex', gap: '8px' }}>
-                  <NavLink href="/" icon={LayoutGrid}>Dashboard</NavLink>
-                  <NavLink href="/trade-center" icon={ArrowLeftRight}>Trade Center</NavLink>
-                  <NavLink href="/franchises" icon={Users}>Franchises</NavLink>
-                </nav>
+                <Link 
+                  href="/franchises" 
+                  className="text-gray-300 hover:text-white transition-colors"
+                >
+                  Franchises
+                </Link>
+                <Link 
+                  href="/trades" 
+                  className="text-gray-300 hover:text-white transition-colors"
+                >
+                  Trades
+                </Link>
+                <Link 
+                  href="/auction" 
+                  className="text-gray-300 hover:text-white transition-colors px-3 py-1 bg-red-600/20 border border-red-600/50 rounded-lg"
+                >
+                  🔴 Auction
+                </Link>
+                <Link 
+                  href="/admin" 
+                  className="text-gray-400 hover:text-white transition-colors text-sm"
+                >
+                  🔐 Admin
+                </Link>
               </div>
-              
-              <UserNav />
             </div>
-          </header>
-          
-          <main style={{ minHeight: 'calc(100vh - 64px)', paddingBottom: '40px' }}>
-            {children}
-          </main>
-        </AuthProvider>
+          </div>
+        </nav>
+
+        {/* Main Content */}
+        <main>{children}</main>
       </body>
     </html>
   );
