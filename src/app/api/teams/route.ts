@@ -8,13 +8,10 @@ export async function GET() {
     const allTeams = await db.select().from(teams);
     const allPlayers = await db.select().from(players);
 
-    // Group players by team
-    const teamsWithPlayers = allTeams.map(team => ({
-      ...team,
-      players: allPlayers.filter(p => p.teamId === team.id),
-    }));
-
-    return NextResponse.json(teamsWithPlayers);
+    return NextResponse.json({
+      teams: allTeams,
+      players: allPlayers,
+    });
   } catch (error) {
     console.error('Error fetching teams:', error);
     return NextResponse.json({ error: 'Failed to fetch teams' }, { status: 500 });
