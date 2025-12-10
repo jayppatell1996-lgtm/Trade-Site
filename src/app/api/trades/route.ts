@@ -1,102 +1,73 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getRecentTrades, executeTrade, getTeamByName } from '@/lib/queries';
+import { db } from '@/db';
+import { trades, teams, players } from '@/db/schema';
+import { eq } from 'drizzle-orm';
 
-export const dynamic = 'force-dynamic';
-
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '10');
-    
-    const trades = await getRecentTrades(limit);
-    return NextResponse.json(trades);
+    const allTrades = await db.select().from(trades).orderBy(trades.id);
+    return NextResponse.json(allTrades);
   } catch (error) {
     console.error('Error fetching trades:', error);
     return NextResponse.json({ error: 'Failed to fetch trades' }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    // Check authentication
     const session = await getServerSession(authOptions);
     
-    if (!session) {
-      return NextResponse.json(
-        { success: false, message: 'You must be signed in to make trades' },
-        { status: 401 }
-      );
-    }
-
-    const userDiscordId = (session.user as any)?.discordId;
-    
-    if (!userDiscordId) {
-      return NextResponse.json(
-        { success: false, message: 'Could not verify your Discord identity' },
-        { status: 401 }
-      );
+    if (!session?.user?.discordId) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { team1Name, team2Name, player1Ids, player2Ids } = body;
+    const { team1Name, team2Name, players1, players2 } = body;
 
-    // Basic validation
-    if (!team1Name || !team2Name) {
-      return NextResponse.json(
-        { success: false, message: 'Both teams must be specified' },
-        { status: 400 }
-      );
+    // Verify user owns team1
+    const allTeams = await db.select().from(teams);
+    const team1 = allTeams.find(t => t.name === team1Name);
+    const team2 = allTeams.find(t => t.name === team2Name);
+
+    if (!team1 || !team2) {
+      return NextResponse.json({ error: 'Invalid teams' }, { status: 400 });
     }
 
-    if (!player1Ids?.length || !player2Ids?.length) {
-      return NextResponse.json(
-        { success: false, message: 'Both teams must offer at least one player' },
-        { status: 400 }
-      );
-    }
-
-    if (player1Ids.length > 5 || player2Ids.length > 5) {
-      return NextResponse.json(
-        { success: false, message: 'Maximum 5 players per side in a trade' },
-        { status: 400 }
-      );
-    }
-
-    if (team1Name === team2Name) {
-      return NextResponse.json(
-        { success: false, message: 'Cannot trade with yourself' },
-        { status: 400 }
-      );
-    }
-
-    // Verify the user owns team1 (the proposing team)
-    const team1 = await getTeamByName(team1Name);
-    
-    if (!team1) {
-      return NextResponse.json(
-        { success: false, message: `Team "${team1Name}" not found` },
-        { status: 404 }
-      );
-    }
-
-    if (team1.ownerId !== userDiscordId) {
-      return NextResponse.json(
-        { success: false, message: `You don't own ${team1Name}. Only team owners can trade their players.` },
-        { status: 403 }
-      );
+    if (team1.ownerId !== session.user.discordId) {
+      return NextResponse.json({ error: 'You do not own this team' }, { status: 403 });
     }
 
     // Execute the trade
-    const result = await executeTrade(team1Name, team2Name, player1Ids, player2Ids);
-    
-    return NextResponse.json(result);
+    const timestamp = new Date().toISOString();
+
+    // Move players from team1 to team2
+    for (const playerName of players1) {
+      await db.update(players)
+        .set({ teamId: team2.id })
+        .where(eq(players.name, playerName));
+    }
+
+    // Move players from team2 to team1
+    for (const playerName of players2) {
+      await db.update(players)
+        .set({ teamId: team1.id })
+        .where(eq(players.name, playerName));
+    }
+
+    // Record the trade
+    const newTrade = await db.insert(trades).values({
+      timestamp,
+      team1Name,
+      team2Name,
+      players1: JSON.stringify(players1),
+      players2: JSON.stringify(players2),
+    }).returning();
+
+    return NextResponse.json(newTrade[0]);
   } catch (error) {
-    console.error('Error executing trade:', error);
-    return NextResponse.json(
-      { success: false, message: 'An error occurred during the trade' },
-      { status: 500 }
-    );
+    console.error('Error creating trade:', error);
+    return NextResponse.json({ error: 'Failed to create trade' }, { status: 500 });
   }
 }

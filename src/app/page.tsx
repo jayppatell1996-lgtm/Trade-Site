@@ -1,273 +1,150 @@
-import { getLeagueStats, getRecentTrades } from '@/lib/queries';
-import { Users, Zap, TrendingUp, ArrowUpRight, ArrowLeftRight } from 'lucide-react';
+import { db } from '@/db';
+import { teams, players, trades, auctionLogs, auctionRounds } from '@/db/schema';
+import { desc } from 'drizzle-orm';
 import Link from 'next/link';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 30;
 
-function StatCard({ 
-  label, 
-  value, 
-  subtitle, 
-  icon: Icon 
-}: { 
-  label: string; 
-  value: string | number; 
-  subtitle: string; 
-  icon: any;
-}) {
-  return (
-    <div className="card stat-card">
-      <div className="stat-label">
-        {label}
-        <Icon size={20} style={{ color: 'var(--accent-green)' }} />
-      </div>
-      <div className="stat-value">{value}</div>
-      <div className="stat-subtitle">{subtitle}</div>
-    </div>
-  );
-}
+export default async function DashboardPage() {
+  const allTeams = await db.select().from(teams);
+  const allPlayers = await db.select().from(players);
+  const allTrades = await db.select().from(trades).orderBy(desc(trades.id)).limit(5);
+  const recentLogs = await db.select().from(auctionLogs).orderBy(desc(auctionLogs.id)).limit(5);
+  const rounds = await db.select().from(auctionRounds);
 
-function FranchiseStatus({ 
-  name, 
-  playerCount, 
-  maxSize 
-}: { 
-  name: string; 
-  playerCount: number; 
-  maxSize: number;
-}) {
-  const percentage = Math.round((playerCount / maxSize) * 100);
-  
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '16px',
-      padding: '12px 0',
-      borderBottom: '1px solid var(--border-color)',
-    }}>
-      <div className="badge badge-team">{name}</div>
-      <div style={{ flex: 1 }}>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          marginBottom: '6px',
-          fontSize: '13px',
-        }}>
-          <span style={{ color: 'var(--text-secondary)' }}>{playerCount} Players</span>
-          <span style={{ color: 'var(--text-muted)' }}>{percentage}% Cap</span>
-        </div>
-        <div className="progress-bar">
-          <div 
-            className="progress-bar-fill" 
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TradeCard({ 
-  trade 
-}: { 
-  trade: {
-    timestamp: string;
-    team1Name: string;
-    team2Name: string;
-    players1: { id: string; name: string }[];
-    players2: { id: string; name: string }[];
-  };
-}) {
-  const date = new Date(trade.timestamp);
-  const dateStr = date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric' 
-  });
-  const timeStr = date.toLocaleTimeString('en-US', { 
-    hour: 'numeric', 
-    minute: '2-digit',
-    hour12: true 
-  });
+  const totalPlayers = allPlayers.length;
+  const totalTrades = allTrades.length;
+  const activeRound = rounds.find(r => r.isActive);
 
   return (
-    <div className="card" style={{ marginBottom: '12px' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '16px',
-      }}>
-        <span style={{ 
-          fontFamily: 'JetBrains Mono, monospace', 
-          fontSize: '13px',
-          color: 'var(--text-muted)',
-        }}>
-          {dateStr} • {timeStr}
-        </span>
-        <span className="badge badge-success">COMPLETED</span>
-      </div>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Team 1 sending */}
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginBottom: '8px',
-          }}>
-            <span className="badge badge-team">{trade.team1Name}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>sent</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {trade.players1.map(p => (
-              <div key={p.id} className="player-chip outgoing">
-                <span style={{ color: 'var(--accent-red)' }}>−</span>
-                {p.name}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="trade-arrow">
-          <ArrowLeftRight size={18} />
-        </div>
-
-        {/* Team 2 sending */}
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px',
-            marginBottom: '8px',
-          }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>sent</span>
-            <span className="badge badge-team">{trade.team2Name}</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {trade.players2.map(p => (
-              <div key={p.id} className="player-chip incoming">
-                <span style={{ color: 'var(--accent-green)' }}>+</span>
-                {p.name}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default async function Dashboard() {
-  const stats = await getLeagueStats();
-  const recentTrades = await getRecentTrades(5);
-
-  return (
-    <div className="container" style={{ paddingTop: '32px' }}>
+    <div className="space-y-8">
       {/* Header */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: '32px',
-      }}>
+      <div className="flex items-center justify-between">
         <div>
-          <h1 style={{ 
-            fontSize: '32px', 
-            fontWeight: 700, 
-            marginBottom: '8px',
-            letterSpacing: '-0.5px',
-          }}>
-            LEAGUE DASHBOARD
-          </h1>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Real-time market analysis and roster tracking.
-          </p>
+          <h1 className="text-3xl font-bold mb-2">League Dashboard</h1>
+          <p className="text-gray-400">Real-time market analysis and roster tracking</p>
         </div>
-        <Link href="/trade-center" className="btn btn-primary">
-          <ArrowUpRight size={18} />
-          NEW TRADE PROPOSAL
-        </Link>
+        {activeRound && (
+          <Link href="/auction" className="btn-primary flex items-center gap-2">
+            <span className="animate-pulse">🔴</span>
+            Live Auction
+          </Link>
+        )}
       </div>
 
       {/* Stats Grid */}
-      <div className="stats-grid" style={{ marginBottom: '32px' }}>
-        <StatCard 
-          label="Active Franchises" 
-          value={stats.totalTeams}
-          subtitle="Teams competing this season"
-          icon={Users}
-        />
-        <StatCard 
-          label="Player Pool" 
-          value={stats.totalPlayers}
-          subtitle="Total active contracts"
-          icon={Zap}
-        />
-        <StatCard 
-          label="Market Volume" 
-          value={stats.totalTrades}
-          subtitle="Completed transactions"
-          icon={TrendingUp}
-        />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="card">
+          <div className="text-gray-400 text-sm mb-1">Total Franchises</div>
+          <div className="text-3xl font-bold text-accent">{allTeams.length}</div>
+        </div>
+        <div className="card">
+          <div className="text-gray-400 text-sm mb-1">Total Players</div>
+          <div className="text-3xl font-bold">{totalPlayers}</div>
+        </div>
+        <div className="card">
+          <div className="text-gray-400 text-sm mb-1">Total Trades</div>
+          <div className="text-3xl font-bold">{totalTrades}</div>
+        </div>
+        <div className="card">
+          <div className="text-gray-400 text-sm mb-1">Auction Rounds</div>
+          <div className="text-3xl font-bold">{rounds.length}</div>
+        </div>
       </div>
 
-      {/* Main Content Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 400px',
-        gap: '24px',
-      }}>
-        {/* Recent Market Activity */}
-        <div>
-          <h2 style={{ 
-            fontSize: '14px', 
-            fontWeight: 600, 
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            color: 'var(--text-secondary)',
-          }}>
-            Recent Market Activity
-          </h2>
-          {recentTrades.length > 0 ? (
-            recentTrades.map(trade => (
-              <TradeCard key={trade.id} trade={trade} />
-            ))
-          ) : (
-            <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
-              <p style={{ color: 'var(--text-muted)' }}>No trades yet</p>
+      {/* Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Recent Activity */}
+        <div className="card">
+          <h2 className="text-xl font-semibold mb-4">Recent Auction Activity</h2>
+          {recentLogs.length > 0 ? (
+            <div className="space-y-3">
+              {recentLogs.map((log) => (
+                <div key={log.id} className="flex items-start gap-3 p-3 bg-surface-light rounded-lg">
+                  <span className={`text-lg ${
+                    log.logType === 'sale' ? 'text-green-400' :
+                    log.logType === 'unsold' ? 'text-red-400' :
+                    'text-yellow-400'
+                  }`}>
+                    {log.logType === 'sale' ? '💰' :
+                     log.logType === 'unsold' ? '❌' :
+                     log.logType === 'start' ? '▶️' :
+                     log.logType === 'pause' ? '⏸️' :
+                     log.logType === 'resume' ? '▶️' :
+                     '🛑'}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm">{log.message}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
             </div>
+          ) : (
+            <p className="text-gray-500 text-center py-8">No auction activity yet</p>
           )}
         </div>
 
-        {/* Franchise Status */}
-        <div>
-          <h2 style={{ 
-            fontSize: '14px', 
-            fontWeight: 600, 
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            color: 'var(--text-secondary)',
-          }}>
-            Franchise Status
-          </h2>
-          <div className="card">
-            {stats.teams
-              .sort((a, b) => b.playerCount - a.playerCount)
-              .map(team => (
-                <FranchiseStatus 
-                  key={team.id}
-                  name={team.name}
-                  playerCount={team.playerCount}
-                  maxSize={team.maxSize}
-                />
-              ))
-            }
-          </div>
+        {/* Recent Trades */}
+        <div className="card">
+          <h2 className="text-xl font-semibold mb-4">Recent Trades</h2>
+          {allTrades.length > 0 ? (
+            <div className="space-y-3">
+              {allTrades.map((trade) => {
+                const players1 = JSON.parse(trade.players1);
+                const players2 = JSON.parse(trade.players2);
+                return (
+                  <div key={trade.id} className="p-3 bg-surface-light rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-accent">{trade.team1Name}</span>
+                      <span className="text-gray-500">↔</span>
+                      <span className="font-medium text-accent">{trade.team2Name}</span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {players1.join(', ')} ↔ {players2.join(', ')}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {new Date(trade.timestamp).toLocaleDateString()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-gray-500 text-center py-8">No trades yet</p>
+          )}
+        </div>
+      </div>
+
+      {/* Franchise Overview */}
+      <div className="card">
+        <h2 className="text-xl font-semibold mb-4">Franchise Status</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {allTeams.map((team) => {
+            const teamPlayers = allPlayers.filter(p => p.teamId === team.id);
+            const rosterPercent = (teamPlayers.length / team.maxSize) * 100;
+            return (
+              <div key={team.id} className="p-4 bg-surface-light rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-medium">{team.name}</span>
+                  <span className="text-sm text-accent font-mono">
+                    ${(team.purse / 1000000).toFixed(1)}M
+                  </span>
+                </div>
+                <div className="w-full bg-background rounded-full h-2">
+                  <div 
+                    className="bg-accent h-2 rounded-full transition-all"
+                    style={{ width: `${rosterPercent}%` }}
+                  />
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  {teamPlayers.length}/{team.maxSize} players
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -1,97 +1,39 @@
-import './globals.css';
 import type { Metadata } from 'next';
-import Link from 'next/link';
-import { LayoutGrid, ArrowLeftRight, Users } from 'lucide-react';
+import './globals.css';
 import AuthProvider from '@/components/AuthProvider';
 import UserNav from '@/components/UserNav';
+import Link from 'next/link';
+import { NavLinks } from '@/components/NavLinks';
 
 export const metadata: Metadata = {
   title: 'Wispbyte League',
-  description: 'Fantasy cricket league management',
+  description: 'Fantasy Cricket League Management',
 };
-
-function NavLink({ href, children, icon: Icon }: { href: string; children: React.ReactNode; icon: any }) {
-  return (
-    <Link 
-      href={href}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        padding: '8px 16px',
-        borderRadius: '8px',
-        fontSize: '14px',
-        fontWeight: 500,
-        color: 'var(--text-secondary)',
-        transition: 'all 0.2s ease',
-      }}
-    >
-      <Icon size={18} />
-      {children}
-    </Link>
-  );
-}
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en">
-      <body>
+      <body className="min-h-screen bg-background text-foreground antialiased">
         <AuthProvider>
-          <header style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 100,
-            background: 'var(--bg-primary)',
-            borderBottom: '1px solid var(--border-color)',
-          }}>
-            <div className="container" style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              height: '64px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-                <Link href="/" style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  fontWeight: 700,
-                  fontSize: '18px',
-                }}>
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    background: 'var(--accent-green)',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--bg-primary)',
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontWeight: 700,
-                    fontSize: '14px',
-                  }}>
-                    W
-                  </div>
-                  WISPBYTE LEAGUE
-                </Link>
-                
-                <nav style={{ display: 'flex', gap: '8px' }}>
-                  <NavLink href="/" icon={LayoutGrid}>Dashboard</NavLink>
-                  <NavLink href="/trade-center" icon={ArrowLeftRight}>Trade Center</NavLink>
-                  <NavLink href="/franchises" icon={Users}>Franchises</NavLink>
-                </nav>
+          <header className="border-b border-border bg-surface/50 backdrop-blur-sm sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center justify-between h-16">
+                <div className="flex items-center gap-8">
+                  <Link href="/" className="flex items-center gap-2">
+                    <span className="text-accent text-2xl">⚡</span>
+                    <span className="font-bold text-lg tracking-tight">THE LEAGUE</span>
+                  </Link>
+                  <NavLinks />
+                </div>
+                <UserNav />
               </div>
-              
-              <UserNav />
             </div>
           </header>
-          
-          <main style={{ minHeight: 'calc(100vh - 64px)', paddingBottom: '40px' }}>
+          <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             {children}
           </main>
         </AuthProvider>

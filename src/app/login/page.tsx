@@ -1,74 +1,42 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { LogIn } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
+
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || '/';
+
+  return (
+    <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="card max-w-md w-full text-center">
+        <div className="text-6xl mb-6">⚡</div>
+        <h1 className="text-2xl font-bold mb-2">Welcome to The League</h1>
+        <p className="text-gray-400 mb-8">
+          Sign in with Discord to manage your team, make trades, and participate in auctions.
+        </p>
+        <button
+          onClick={() => signIn('discord', { callbackUrl })}
+          className="w-full flex items-center justify-center gap-3 bg-[#5865F2] hover:bg-[#4752C4] text-white px-6 py-4 rounded-lg transition-colors font-medium"
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+          </svg>
+          Sign in with Discord
+        </button>
+        <p className="text-xs text-gray-500 mt-6">
+          Only team owners can make trades and bid in auctions.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   return (
-    <div className="container" style={{ 
-      paddingTop: '100px', 
-      maxWidth: '400px',
-      textAlign: 'center',
-    }}>
-      <div className="card" style={{ padding: '48px 32px' }}>
-        <div style={{
-          width: '64px',
-          height: '64px',
-          background: 'var(--accent-green)',
-          borderRadius: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 24px',
-          fontFamily: 'JetBrains Mono, monospace',
-          fontWeight: 700,
-          fontSize: '24px',
-          color: 'var(--bg-primary)',
-        }}>
-          W
-        </div>
-        
-        <h1 style={{ 
-          fontSize: '24px', 
-          fontWeight: 700, 
-          marginBottom: '8px',
-        }}>
-          Welcome Back
-        </h1>
-        
-        <p style={{ 
-          color: 'var(--text-secondary)', 
-          marginBottom: '32px',
-          lineHeight: 1.6,
-        }}>
-          Sign in with your Discord account to manage your team and make trades.
-        </p>
-        
-        <button
-          onClick={() => signIn('discord', { callbackUrl: '/' })}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '10px',
-            width: '100%',
-            padding: '14px 24px',
-            background: '#5865F2',
-            border: 'none',
-            borderRadius: '8px',
-            color: 'white',
-            fontSize: '16px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            transition: 'all 0.2s ease',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 71 55" fill="none">
-            <path d="M60.1045 4.8978C55.5792 2.8214 50.7265 1.2916 45.6527 0.41542C45.5603 0.39851 45.468 0.440769 45.4204 0.525289C44.7963 1.6353 44.105 3.0834 43.6209 4.2216C38.1637 3.4046 32.7345 3.4046 27.3892 4.2216C26.905 3.0581 26.1886 1.6353 25.5617 0.525289C25.5141 0.443589 25.4218 0.40133 25.3294 0.41542C20.2584 1.2888 15.4057 2.8186 10.8776 4.8978C10.8384 4.9147 10.8048 4.9429 10.7825 4.9795C1.57795 18.7309 -0.943561 32.1443 0.293408 45.3914C0.299005 45.4562 0.335386 45.5182 0.385761 45.5576C6.45866 50.0174 12.3413 52.7249 18.1147 54.5195C18.2071 54.5477 18.305 54.5139 18.3638 54.4378C19.7295 52.5728 20.9469 50.6063 21.9907 48.5383C22.0523 48.4172 21.9935 48.2735 21.8676 48.2256C19.9366 47.4931 18.0979 46.6 16.3292 45.5858C16.1893 45.5041 16.1781 45.304 16.3068 45.2082C16.679 44.9293 17.0513 44.6391 17.4067 44.3461C17.471 44.2926 17.5606 44.2813 17.6362 44.3151C29.2558 49.6202 41.8354 49.6202 53.3179 44.3151C53.3## 44.2785 53.4831 44.2898 53.55 44.3433C53.9054 44.6363 54.2776 44.9293 54.6526 45.2082C54.7813 45.304 54.7## 45.5041 54.6303 45.5858C52.8616 46.6197 51.0229 47.4931 49.0891 48.2228C48.9632 48.2707 48.9072 48.4172 48.9688 48.5383C50.0380 50.6034 51.2554 52.5699 52.5765 54.4350C52.6325 54.5139 52.7332 54.5765 52.8256 54.5195C58.6268 52.7249 64.5095 50.0174 70.5824 45.5576C70.6356 45.5182 70.6692 45.459 70.6748 45.3942C72.1688 29.9 68.1560 16.5999 60.1968 4.9823C60.1772 4.9429 60.1437 4.9147 60.1045 4.8978Z" fill="white"/>
-          </svg>
-          Continue with Discord
-        </button>
-      </div>
-    </div>
+    <Suspense fallback={<div className="min-h-[60vh] flex items-center justify-center">Loading...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }
