@@ -89,6 +89,7 @@ export default function AuctionPage() {
   const [timer, setTimer] = useState<number>(INITIAL_TIMER);
   const timerExpiredRef = useRef(false);
   const processingRef = useRef(false);
+  const currentPlayerRef = useRef<number | null>(null); // Track which player timer is for
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
   const userTeam = state?.teams.find(t => t.ownerId === session?.user?.discordId);
@@ -106,13 +107,25 @@ export default function AuctionPage() {
       const roundsData = await roundsRes.json();
 
       if (stateRes.ok) {
+        // Check if player changed - reset refs if so
+        const playerChanged = state?.currentPlayerId !== stateData.currentPlayerId;
+        if (playerChanged && stateData.currentPlayerId) {
+          timerExpiredRef.current = false;
+          processingRef.current = false;
+          currentPlayerRef.current = stateData.currentPlayerId;
+        }
+        
         setState(stateData);
         
         // Sync timer from server if we have valid remaining time
         if (stateData.remainingTime !== undefined && stateData.remainingTime > 0 && !stateData.isPaused) {
           const serverTime = Math.ceil(stateData.remainingTime);
-          // Only update if significantly different to avoid jitter
-          setTimer(prev => Math.abs(prev - serverTime) > 2 ? serverTime : prev);
+          // Force sync if player changed, otherwise only if significantly different
+          if (playerChanged) {
+            setTimer(serverTime);
+          } else {
+            setTimer(prev => Math.abs(prev - serverTime) > 2 ? serverTime : prev);
+          }
         }
         
         // Handle state transitions
@@ -140,7 +153,7 @@ export default function AuctionPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [state?.currentPlayerId]);
 
   // Simple countdown timer
   useEffect(() => {
@@ -148,6 +161,9 @@ export default function AuctionPage() {
     if (!state?.isActive || !state?.currentPlayerId || state?.isPaused || waitingForNext) {
       return;
     }
+
+    // Track which player this timer is for
+    currentPlayerRef.current = state.currentPlayerId;
 
     const interval = setInterval(() => {
       setTimer(prev => {
@@ -165,6 +181,7 @@ export default function AuctionPage() {
       timer <= 0 &&
       state?.isActive &&
       state?.currentPlayerId &&
+      state.currentPlayerId === currentPlayerRef.current && // Only expire for the correct player
       !state?.isPaused &&
       !waitingForNext &&
       !timerExpiredRef.current &&
@@ -191,6 +208,20 @@ export default function AuctionPage() {
       });
 
       const data = await res.json();
+      
+      // Handle 409 Conflict - timer was reset by a bid, refresh state
+      if (res.status === 409 && data.rejected) {
+        console.log('Timer expiry rejected - bid placed, refreshing state');
+        // Reset the timer to what server says and fetch fresh state
+        if (data.timeRemaining) {
+          setTimer(data.timeRemaining);
+        }
+        // Reset refs immediately so new expiry can trigger
+        processingRef.current = false;
+        timerExpiredRef.current = false;
+        fetchState();
+        return; // Don't process as expired
+      }
       
       if (res.ok) {
         if (data.playerName && data.teamName) {
@@ -263,6 +294,7 @@ export default function AuctionPage() {
         // Reset timer on successful bid
         setTimer(BID_TIMER);
         timerExpiredRef.current = false;
+        processingRef.current = false; // Also reset processing ref
         setMessage({ type: 'success', text: data.message });
         fetchState();
       } else {

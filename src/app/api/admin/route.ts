@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, ADMIN_IDS } from '@/lib/auth';
 import { db } from '@/db';
-import { teams, players, auctionRounds, auctionPlayers, unsoldPlayers } from '@/db/schema';
+import { teams, players, auctionRounds, auctionPlayers, unsoldPlayers, auctionState, auctionLogs } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
 export async function POST(request: NextRequest) {
@@ -178,7 +178,6 @@ export async function POST(request: NextRequest) {
 
         // If round is active, deactivate it first and clear auction state
         if (round[0].isActive) {
-          const { auctionState } = await import('@/db/schema');
           await db.update(auctionState)
             .set({
               isActive: false,
@@ -220,7 +219,6 @@ export async function POST(request: NextRequest) {
         
         // If round is active, clear auction state
         if (roundToReset.length > 0 && roundToReset[0].isActive) {
-          const { auctionState } = await import('@/db/schema');
           await db.update(auctionState)
             .set({
               isActive: false,
@@ -366,13 +364,12 @@ export async function POST(request: NextRequest) {
 
       case 'reset_auction_data': {
         // Reset all auction-related data (logs, sold players, auction state)
-        const { auctionLogs, auctionState, players: playersTable } = await import('@/db/schema');
         
         // Clear auction logs
         await db.delete(auctionLogs);
         
         // Clear sold players from teams (players table)
-        await db.delete(playersTable);
+        await db.delete(players);
         
         // Reset all auction rounds to not active/not completed
         await db.update(auctionRounds)

@@ -425,14 +425,55 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'No active auction' }, { status: 400 });
         }
 
+        // CRITICAL: Check if timer has ACTUALLY expired on the server
+        // This prevents race conditions when bids reset the timer but stale clients still call timer_expired
+        const now = Date.now();
+        const timerEnd = state.timerEndTime ? Number(state.timerEndTime) : 0;
+        const timeRemaining = timerEnd - now;
+        
+        // Allow 500ms grace period for network latency, but reject if timer is clearly not expired
+        if (timeRemaining > 500) {
+          releaseControlLock();
+          console.log(`Timer expiry rejected: ${timeRemaining}ms remaining (bid likely just placed)`);
+          return NextResponse.json({ 
+            error: 'Timer not expired yet - a bid may have just been placed',
+            rejected: true,
+            timeRemaining: Math.ceil(timeRemaining / 1000)
+          }, { status: 409 }); // 409 Conflict
+        }
+
         if (state.highestBidderId) {
-          // There's a highest bidder - auto sell
+          // CRITICAL: Re-read state IMMEDIATELY before sale to catch any last-second bids
+          // This is needed because the bid API uses a different lock
+          const freshStates = await db.select().from(auctionState);
+          const freshState = freshStates[0];
+          
+          if (!freshState || !freshState.currentPlayerId) {
+            releaseControlLock();
+            return NextResponse.json({ error: 'Auction already processed' }, { status: 409 });
+          }
+          
+          // Re-check timer with fresh state
+          const freshTimerEnd = freshState.timerEndTime ? Number(freshState.timerEndTime) : 0;
+          const freshTimeRemaining = freshTimerEnd - Date.now();
+          
+          if (freshTimeRemaining > 500) {
+            releaseControlLock();
+            console.log(`Timer expiry rejected on re-check: ${freshTimeRemaining}ms remaining`);
+            return NextResponse.json({ 
+              error: 'A bid was placed - timer reset',
+              rejected: true,
+              timeRemaining: Math.ceil(freshTimeRemaining / 1000)
+            }, { status: 409 });
+          }
+          
+          // Use fresh state data for the sale
           const result = await finalizeSale(
-            state.id,
-            state.currentPlayerId,
-            state.currentRoundId,
-            state.highestBidderId,
-            state.currentBid || 0
+            freshState.id,
+            freshState.currentPlayerId,
+            freshState.currentRoundId,
+            freshState.highestBidderId!,
+            freshState.currentBid || 0
           );
           releaseControlLock();
           return NextResponse.json(result);
