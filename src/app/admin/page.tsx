@@ -594,60 +594,56 @@ export default function AdminPage() {
                         {round.isCompleted && (
                           <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Completed</span>
                         )}
-                        {!round.isActive && (
-                          <>
-                            <button
-                              onClick={async () => {
-                                if (confirm(`Reset Round ${round.roundNumber}? All players will be set back to pending.`)) {
-                                  try {
-                                    const res = await fetch('/api/admin', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ action: 'reset_round', roundId: round.id }),
-                                    });
-                                    const data = await res.json();
-                                    if (res.ok) {
-                                      setMessage({ type: 'success', text: data.message });
-                                      fetchData();
-                                    } else {
-                                      setMessage({ type: 'error', text: data.error });
-                                    }
-                                  } catch (error) {
-                                    setMessage({ type: 'error', text: 'Failed to reset round' });
-                                  }
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Reset Round ${round.roundNumber}? All players will be set back to pending.${round.isActive ? '\n\n⚠️ This round is currently ACTIVE. This will stop the auction!' : ''}`)) {
+                              try {
+                                const res = await fetch('/api/admin', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ action: 'reset_round', roundId: round.id }),
+                                });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  setMessage({ type: 'success', text: data.message });
+                                  fetchData();
+                                } else {
+                                  setMessage({ type: 'error', text: data.error });
                                 }
-                              }}
-                              className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded hover:bg-yellow-500/30"
-                            >
-                              🔄 Reset
-                            </button>
-                            <button
-                              onClick={async () => {
-                                if (confirm(`DELETE Round ${round.roundNumber}: ${round.name}?\n\nThis will permanently delete the round and ALL players in it. This cannot be undone!`)) {
-                                  try {
-                                    const res = await fetch('/api/admin', {
-                                      method: 'POST',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ action: 'delete_round', roundId: round.id }),
-                                    });
-                                    const data = await res.json();
-                                    if (res.ok) {
-                                      setMessage({ type: 'success', text: data.message });
-                                      fetchData();
-                                    } else {
-                                      setMessage({ type: 'error', text: data.error });
-                                    }
-                                  } catch (error) {
-                                    setMessage({ type: 'error', text: 'Failed to delete round' });
-                                  }
+                              } catch (error) {
+                                setMessage({ type: 'error', text: 'Failed to reset round' });
+                              }
+                            }
+                          }}
+                          className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded hover:bg-yellow-500/30"
+                        >
+                          🔄 Reset
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (confirm(`DELETE Round ${round.roundNumber}: ${round.name}?\n\nThis will permanently delete the round and ALL players in it. This cannot be undone!${round.isActive ? '\n\n⚠️ This round is currently ACTIVE. This will stop the auction!' : ''}`)) {
+                              try {
+                                const res = await fetch('/api/admin', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ action: 'delete_round', roundId: round.id }),
+                                });
+                                const data = await res.json();
+                                if (res.ok) {
+                                  setMessage({ type: 'success', text: data.message });
+                                  fetchData();
+                                } else {
+                                  setMessage({ type: 'error', text: data.error });
                                 }
-                              }}
-                              className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
-                            >
-                              🗑️ Delete
-                            </button>
-                          </>
-                        )}
+                              } catch (error) {
+                                setMessage({ type: 'error', text: 'Failed to delete round' });
+                              }
+                            }
+                          }}
+                          className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded hover:bg-red-500/30"
+                        >
+                          🗑️ Delete
+                        </button>
                       </div>
                     </div>
                     <div className="grid grid-cols-4 gap-4 text-sm">
@@ -671,6 +667,49 @@ export default function AdminPage() {
           ) : (
             <p className="text-gray-500 text-center py-8">No rounds created. Use the Upload tab to import rounds.</p>
           )}
+
+          {/* Danger Zone - Reset All Auction Data */}
+          <div className="mt-8 pt-6 border-t border-red-500/30">
+            <h3 className="text-lg font-semibold text-red-400 mb-4">⚠️ Danger Zone</h3>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h4 className="font-medium text-red-400">Reset All Auction Data</h4>
+                  <p className="text-sm text-gray-400 mt-1">
+                    This will clear ALL auction logs, sold player records, unsold players, and reset all rounds to pending.
+                    Team purses will remain unchanged. This action cannot be undone!
+                  </p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (confirm('⚠️ DANGER: Reset ALL auction data?\n\nThis will:\n• Clear all auction logs\n• Remove all sold players from rosters\n• Reset all rounds to pending\n• Clear unsold players list\n\nTeam purses will NOT be reset.\n\nThis action CANNOT be undone!')) {
+                      if (confirm('Are you ABSOLUTELY sure? Type "yes" mentally and click OK to proceed.')) {
+                        try {
+                          const res = await fetch('/api/admin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'reset_auction_data' }),
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            setMessage({ type: 'success', text: data.message });
+                            fetchData();
+                          } else {
+                            setMessage({ type: 'error', text: data.error });
+                          }
+                        } catch (error) {
+                          setMessage({ type: 'error', text: 'Failed to reset auction data' });
+                        }
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 whitespace-nowrap"
+                >
+                  🗑️ Reset All Data
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -176,9 +176,21 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'Round not found' }, { status: 404 });
         }
 
-        // Check if round is currently active
+        // If round is active, deactivate it first and clear auction state
         if (round[0].isActive) {
-          return NextResponse.json({ error: 'Cannot delete an active round. Stop the auction first.' }, { status: 400 });
+          const { auctionState } = await import('@/db/schema');
+          await db.update(auctionState)
+            .set({
+              isActive: false,
+              isPaused: false,
+              currentPlayerId: null,
+              currentRoundId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+            });
         }
 
         const roundName = round[0].name;
@@ -201,6 +213,26 @@ export async function POST(request: NextRequest) {
 
         if (!roundId) {
           return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
+        }
+
+        // Get round to check if active
+        const roundToReset = await db.select().from(auctionRounds).where(eq(auctionRounds.id, roundId));
+        
+        // If round is active, clear auction state
+        if (roundToReset.length > 0 && roundToReset[0].isActive) {
+          const { auctionState } = await import('@/db/schema');
+          await db.update(auctionState)
+            .set({
+              isActive: false,
+              isPaused: false,
+              currentPlayerId: null,
+              currentRoundId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+            });
         }
 
         // Reset round status
@@ -332,60 +364,45 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: `Team "${name}" created` });
       }
 
-      case 'delete_round': {
-        // Delete an auction round and all its players
-        const { roundId } = data;
-
-        if (!roundId) {
-          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
-        }
-
-        // Get round info
-        const round = await db.select().from(auctionRounds).where(eq(auctionRounds.id, roundId));
+      case 'reset_auction_data': {
+        // Reset all auction-related data (logs, sold players, auction state)
+        const { auctionLogs, auctionState, players: playersTable } = await import('@/db/schema');
         
-        if (round.length === 0) {
-          return NextResponse.json({ error: 'Round not found' }, { status: 404 });
-        }
-
-        // Don't allow deleting active rounds
-        if (round[0].isActive) {
-          return NextResponse.json({ error: 'Cannot delete an active round. Stop the auction first.' }, { status: 400 });
-        }
-
-        const roundName = round[0].name;
-        const roundNumber = round[0].roundNumber;
-
-        // Delete all players in this round
-        await db.delete(auctionPlayers).where(eq(auctionPlayers.roundId, roundId));
-
-        // Delete the round
-        await db.delete(auctionRounds).where(eq(auctionRounds.id, roundId));
+        // Clear auction logs
+        await db.delete(auctionLogs);
+        
+        // Clear sold players from teams (players table)
+        await db.delete(playersTable);
+        
+        // Reset all auction rounds to not active/not completed
+        await db.update(auctionRounds)
+          .set({ isActive: false, isCompleted: false });
+        
+        // Reset all auction players to pending
+        await db.update(auctionPlayers)
+          .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null });
+        
+        // Reset auction state
+        await db.update(auctionState)
+          .set({
+            isActive: false,
+            isPaused: false,
+            currentPlayerId: null,
+            currentRoundId: null,
+            currentBid: 0,
+            highestBidderId: null,
+            highestBidderTeam: null,
+            timerEndTime: null,
+            pausedTimeRemaining: null,
+          });
+        
+        // Clear unsold players
+        await db.delete(unsoldPlayers);
 
         return NextResponse.json({ 
           success: true, 
-          message: `Round ${roundNumber} "${roundName}" and all its players have been deleted` 
+          message: 'All auction data has been reset. Player rosters cleared, logs cleared, rounds reset to pending.' 
         });
-      }
-
-      case 'reset_round': {
-        // Reset a round - mark all players as pending again
-        const { roundId } = data;
-
-        if (!roundId) {
-          return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
-        }
-
-        // Reset all players in this round to pending
-        await db.update(auctionPlayers)
-          .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null })
-          .where(eq(auctionPlayers.roundId, roundId));
-
-        // Reset round status
-        await db.update(auctionRounds)
-          .set({ isActive: false, isCompleted: false })
-          .where(eq(auctionRounds.id, roundId));
-
-        return NextResponse.json({ success: true, message: 'Round has been reset' });
       }
 
       default:
