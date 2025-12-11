@@ -16,6 +16,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, data } = body;
 
+    // Handle both { action, data: { ... } } and { action, ... } formats
+    const getData = (key: string) => {
+      if (data && data[key] !== undefined) return data[key];
+      if (body[key] !== undefined) return body[key];
+      return undefined;
+    };
+
     switch (action) {
       case 'import_teams': {
         // Import teams from JSON - OVERWRITES existing data
@@ -163,7 +170,7 @@ export async function POST(request: NextRequest) {
 
       case 'delete_round': {
         // Delete an auction round and all its players
-        const { roundId } = data;
+        const roundId = getData('roundId');
 
         if (!roundId) {
           return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
@@ -178,18 +185,23 @@ export async function POST(request: NextRequest) {
 
         // If round is active, deactivate it first and clear auction state
         if (round[0].isActive) {
-          await db.update(auctionState)
-            .set({
-              isActive: false,
-              isPaused: false,
-              currentPlayerId: null,
-              currentRoundId: null,
-              currentBid: 0,
-              highestBidderId: null,
-              highestBidderTeam: null,
-              timerEndTime: null,
-              pausedTimeRemaining: null,
-            });
+          // Get the auction state first
+          const states = await db.select().from(auctionState);
+          if (states.length > 0) {
+            await db.update(auctionState)
+              .set({
+                isActive: false,
+                isPaused: false,
+                currentPlayerId: null,
+                currentRoundId: null,
+                currentBid: 0,
+                highestBidderId: null,
+                highestBidderTeam: null,
+                timerEndTime: null,
+                pausedTimeRemaining: null,
+              })
+              .where(eq(auctionState.id, states[0].id));
+          }
         }
 
         const roundName = round[0].name;
@@ -208,7 +220,7 @@ export async function POST(request: NextRequest) {
 
       case 'reset_round': {
         // Reset a round's status and all players to pending
-        const { roundId } = data;
+        const roundId = getData('roundId');
 
         if (!roundId) {
           return NextResponse.json({ error: 'Round ID required' }, { status: 400 });
@@ -219,18 +231,22 @@ export async function POST(request: NextRequest) {
         
         // If round is active, clear auction state
         if (roundToReset.length > 0 && roundToReset[0].isActive) {
-          await db.update(auctionState)
-            .set({
-              isActive: false,
-              isPaused: false,
-              currentPlayerId: null,
-              currentRoundId: null,
-              currentBid: 0,
-              highestBidderId: null,
-              highestBidderTeam: null,
-              timerEndTime: null,
-              pausedTimeRemaining: null,
-            });
+          const states = await db.select().from(auctionState);
+          if (states.length > 0) {
+            await db.update(auctionState)
+              .set({
+                isActive: false,
+                isPaused: false,
+                currentPlayerId: null,
+                currentRoundId: null,
+                currentBid: 0,
+                highestBidderId: null,
+                highestBidderTeam: null,
+                timerEndTime: null,
+                pausedTimeRemaining: null,
+              })
+              .where(eq(auctionState.id, states[0].id));
+          }
         }
 
         // Reset round status
@@ -372,26 +388,38 @@ export async function POST(request: NextRequest) {
         await db.delete(players);
         
         // Reset all auction rounds to not active/not completed
-        await db.update(auctionRounds)
-          .set({ isActive: false, isCompleted: false });
+        const allRounds = await db.select().from(auctionRounds);
+        for (const round of allRounds) {
+          await db.update(auctionRounds)
+            .set({ isActive: false, isCompleted: false })
+            .where(eq(auctionRounds.id, round.id));
+        }
         
         // Reset all auction players to pending
-        await db.update(auctionPlayers)
-          .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null });
+        const allAuctionPlayers = await db.select().from(auctionPlayers);
+        for (const player of allAuctionPlayers) {
+          await db.update(auctionPlayers)
+            .set({ status: 'pending', soldTo: null, soldFor: null, soldAt: null })
+            .where(eq(auctionPlayers.id, player.id));
+        }
         
         // Reset auction state
-        await db.update(auctionState)
-          .set({
-            isActive: false,
-            isPaused: false,
-            currentPlayerId: null,
-            currentRoundId: null,
-            currentBid: 0,
-            highestBidderId: null,
-            highestBidderTeam: null,
-            timerEndTime: null,
-            pausedTimeRemaining: null,
-          });
+        const states = await db.select().from(auctionState);
+        if (states.length > 0) {
+          await db.update(auctionState)
+            .set({
+              isActive: false,
+              isPaused: false,
+              currentPlayerId: null,
+              currentRoundId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+            })
+            .where(eq(auctionState.id, states[0].id));
+        }
         
         // Clear unsold players
         await db.delete(unsoldPlayers);
@@ -407,7 +435,8 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Error in admin action:', error);
-    return NextResponse.json({ error: 'Failed to execute action' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: `Failed to execute action: ${errorMessage}` }, { status: 500 });
   }
 }
 
