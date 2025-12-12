@@ -33,6 +33,7 @@ interface Round {
 interface AuctionPlayer {
   id: number;
   roundId: number;
+  playerId?: string | null;
   name: string;
   category: string;
   basePrice: number;
@@ -804,6 +805,7 @@ export default function AdminPage() {
                             <thead>
                               <tr className="text-left text-gray-400 border-b border-border">
                                 <th className="pb-2 pr-4">#</th>
+                                <th className="pb-2 pr-4">Player ID</th>
                                 <th className="pb-2 pr-4">Player Name</th>
                                 <th className="pb-2 pr-4">Category</th>
                                 <th className="pb-2 pr-4">Base Price</th>
@@ -821,6 +823,9 @@ export default function AdminPage() {
                                   }`}
                                 >
                                   <td className="py-2 pr-4 text-gray-500">{index + 1}</td>
+                                  <td className="py-2 pr-4 font-mono text-xs text-gray-400">
+                                    {player.playerId || '-'}
+                                  </td>
                                   <td className="py-2 pr-4 font-medium">
                                     {player.name}
                                     {player.status === 'current' && (
