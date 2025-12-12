@@ -15,7 +15,7 @@
   "dependencies": {
     "@libsql/client": "^0.14.0",
     "drizzle-orm": "^0.38.2",
-    "next": "^16.0.9",
+    "next": "^16.0.10",
     "next-auth": "^4.24.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

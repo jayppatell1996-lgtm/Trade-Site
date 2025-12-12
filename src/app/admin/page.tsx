@@ -37,16 +37,28 @@ interface AuctionPlayer {
   category: string;
   basePrice: number;
   status: string;
+  soldTo?: string | null;
+  soldFor?: number | null;
+  soldAt?: string | null;
+}
+
+interface AuctionLog {
+  id: number;
+  roundId: number | null;
+  message: string;
+  logType: string;
+  timestamp: string;
 }
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'teams' | 'rounds' | 'upload'>('teams');
+  const [activeTab, setActiveTab] = useState<'teams' | 'rounds' | 'players' | 'logs' | 'upload'>('teams');
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
   const [auctionPlayers, setAuctionPlayers] = useState<AuctionPlayer[]>([]);
+  const [auctionLogs, setAuctionLogs] = useState<AuctionLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -82,6 +94,7 @@ export default function AdminPage() {
         setPlayers(data.players);
         setRounds(data.rounds);
         setAuctionPlayers(data.auctionPlayers);
+        setAuctionLogs(data.auctionLogs || []);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -330,7 +343,7 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border pb-4">
-        {(['teams', 'rounds', 'upload'] as const).map(tab => (
+        {(['teams', 'rounds', 'players', 'logs', 'upload'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -340,7 +353,7 @@ export default function AdminPage() {
                 : 'bg-surface hover:bg-surface-light'
             }`}
           >
-            {tab}
+            {tab === 'players' ? 'Round Players' : tab}
           </button>
         ))}
       </div>
@@ -709,6 +722,333 @@ export default function AdminPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Round Players Tab */}
+      {activeTab === 'players' && (
+        <div className="space-y-6">
+          <h2 className="text-xl font-bold">Auction Rounds & Players</h2>
+          
+          {rounds.length === 0 ? (
+            <div className="card text-center py-12">
+              <div className="text-4xl mb-4">📋</div>
+              <p className="text-gray-400">No auction rounds created yet.</p>
+              <p className="text-sm text-gray-500 mt-2">Go to the Upload tab to import rounds.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {rounds
+                .sort((a, b) => a.roundNumber - b.roundNumber)
+                .map(round => {
+                  const roundPlayers = auctionPlayers
+                    .filter(p => p.roundId === round.id)
+                    .sort((a, b) => {
+                      // Sort by status: pending first, then sold, then unsold
+                      const statusOrder: Record<string, number> = { pending: 0, current: 1, sold: 2, unsold: 3 };
+                      return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
+                    });
+                  
+                  const pending = roundPlayers.filter(p => p.status === 'pending').length;
+                  const sold = roundPlayers.filter(p => p.status === 'sold').length;
+                  const unsold = roundPlayers.filter(p => p.status === 'unsold').length;
+                  const current = roundPlayers.filter(p => p.status === 'current').length;
+
+                  return (
+                    <div key={round.id} className="card">
+                      {/* Round Header */}
+                      <div className="flex justify-between items-center mb-4 pb-4 border-b border-border">
+                        <div>
+                          <h3 className="text-lg font-bold flex items-center gap-2">
+                            Round {round.roundNumber}: {round.name}
+                            {round.isActive && (
+                              <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded animate-pulse">
+                                🔴 LIVE
+                              </span>
+                            )}
+                            {round.isCompleted && (
+                              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">
+                                ✅ Completed
+                              </span>
+                            )}
+                          </h3>
+                          <div className="flex gap-4 mt-2 text-sm">
+                            <span className="text-gray-400">
+                              Total: <span className="text-white font-medium">{roundPlayers.length}</span>
+                            </span>
+                            <span className="text-yellow-400">
+                              Pending: <span className="font-medium">{pending}</span>
+                            </span>
+                            {current > 0 && (
+                              <span className="text-orange-400">
+                                Current: <span className="font-medium">{current}</span>
+                              </span>
+                            )}
+                            <span className="text-green-400">
+                              Sold: <span className="font-medium">{sold}</span>
+                            </span>
+                            <span className="text-red-400">
+                              Unsold: <span className="font-medium">{unsold}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Players Table */}
+                      {roundPlayers.length === 0 ? (
+                        <p className="text-gray-500 text-center py-4">No players in this round</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-left text-gray-400 border-b border-border">
+                                <th className="pb-2 pr-4">#</th>
+                                <th className="pb-2 pr-4">Player Name</th>
+                                <th className="pb-2 pr-4">Category</th>
+                                <th className="pb-2 pr-4">Base Price</th>
+                                <th className="pb-2 pr-4">Status</th>
+                                <th className="pb-2 pr-4">Sold To</th>
+                                <th className="pb-2">Sold For</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {roundPlayers.map((player, index) => (
+                                <tr 
+                                  key={player.id} 
+                                  className={`border-b border-border/50 hover:bg-surface-light/50 ${
+                                    player.status === 'current' ? 'bg-orange-500/10' : ''
+                                  }`}
+                                >
+                                  <td className="py-2 pr-4 text-gray-500">{index + 1}</td>
+                                  <td className="py-2 pr-4 font-medium">
+                                    {player.name}
+                                    {player.status === 'current' && (
+                                      <span className="ml-2 text-xs text-orange-400">⚡ LIVE</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 pr-4 text-gray-400">{player.category || '-'}</td>
+                                  <td className="py-2 pr-4 font-mono text-accent">
+                                    ${(player.basePrice / 1000000).toFixed(2)}M
+                                  </td>
+                                  <td className="py-2 pr-4">
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      player.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                                      player.status === 'current' ? 'bg-orange-500/20 text-orange-400' :
+                                      player.status === 'sold' ? 'bg-green-500/20 text-green-400' :
+                                      player.status === 'unsold' ? 'bg-red-500/20 text-red-400' :
+                                      'bg-gray-500/20 text-gray-400'
+                                    }`}>
+                                      {player.status.toUpperCase()}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 pr-4">
+                                    {player.soldTo ? (
+                                      <span className="font-medium text-accent">{player.soldTo}</span>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2">
+                                    {player.soldFor ? (
+                                      <span className="font-mono text-green-400">
+                                        ${(player.soldFor / 1000000).toFixed(2)}M
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* Round Summary */}
+                      {sold > 0 && (
+                        <div className="mt-4 pt-4 border-t border-border">
+                          <div className="flex justify-between items-center text-sm">
+                            <span className="text-gray-400">Total Amount Raised:</span>
+                            <span className="font-mono text-green-400 font-bold">
+                              ${(roundPlayers
+                                .filter(p => p.soldFor)
+                                .reduce((sum, p) => sum + (p.soldFor || 0), 0) / 1000000).toFixed(2)}M
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Logs Tab */}
+      {activeTab === 'logs' && (
+        <div className="space-y-6">
+          {/* Summary Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="card bg-gradient-to-br from-green-500/20 to-green-500/5 border border-green-500/30">
+              <div className="text-3xl font-bold text-green-400">
+                {auctionLogs.filter(l => l.logType === 'sale').length}
+              </div>
+              <div className="text-sm text-gray-400">Total Sales</div>
+            </div>
+            <div className="card bg-gradient-to-br from-yellow-500/20 to-yellow-500/5 border border-yellow-500/30">
+              <div className="text-3xl font-bold text-yellow-400">
+                {auctionLogs.filter(l => l.logType === 'unsold').length}
+              </div>
+              <div className="text-sm text-gray-400">Unsold</div>
+            </div>
+            <div className="card bg-gradient-to-br from-blue-500/20 to-blue-500/5 border border-blue-500/30">
+              <div className="text-3xl font-bold text-blue-400">
+                {auctionLogs.filter(l => l.logType === 'bid').length}
+              </div>
+              <div className="text-sm text-gray-400">Total Bids</div>
+            </div>
+            <div className="card bg-gradient-to-br from-purple-500/20 to-purple-500/5 border border-purple-500/30">
+              <div className="text-3xl font-bold text-purple-400">
+                {auctionLogs.length}
+              </div>
+              <div className="text-sm text-gray-400">All Events</div>
+            </div>
+          </div>
+
+          {/* Sales History */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">📜 Auction History</h2>
+              <span className="text-sm text-gray-400">{auctionLogs.length} total events</span>
+            </div>
+
+            {auctionLogs.length > 0 ? (
+              <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                {/* Group by showing sales first, then other logs */}
+                {auctionLogs
+                  .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                  .map((log) => {
+                    const round = rounds.find(r => r.id === log.roundId);
+                    const roundLabel = round ? `Round ${round.roundNumber}` : '';
+                    
+                    let bgColor = 'bg-surface-light';
+                    let textColor = 'text-gray-300';
+                    let icon = '📝';
+                    
+                    if (log.logType === 'sale') {
+                      bgColor = 'bg-green-500/10 border-l-4 border-green-500';
+                      textColor = 'text-green-400';
+                      icon = '💰';
+                    } else if (log.logType === 'unsold') {
+                      bgColor = 'bg-yellow-500/10 border-l-4 border-yellow-500';
+                      textColor = 'text-yellow-400';
+                      icon = '❌';
+                    } else if (log.logType === 'bid') {
+                      bgColor = 'bg-blue-500/10 border-l-4 border-blue-500';
+                      textColor = 'text-blue-400';
+                      icon = '🔨';
+                    } else if (log.logType === 'start' || log.logType === 'next') {
+                      bgColor = 'bg-purple-500/10 border-l-4 border-purple-500';
+                      textColor = 'text-purple-400';
+                      icon = '▶️';
+                    } else if (log.logType === 'pause' || log.logType === 'resume') {
+                      bgColor = 'bg-orange-500/10 border-l-4 border-orange-500';
+                      textColor = 'text-orange-400';
+                      icon = log.logType === 'pause' ? '⏸️' : '▶️';
+                    } else if (log.logType === 'stop') {
+                      bgColor = 'bg-red-500/10 border-l-4 border-red-500';
+                      textColor = 'text-red-400';
+                      icon = '🛑';
+                    }
+                    
+                    return (
+                      <div key={log.id} className={`p-3 rounded-lg ${bgColor}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-2">
+                            <span className="text-lg">{icon}</span>
+                            <div>
+                              <span className={`${textColor}`}>{log.message}</span>
+                              {roundLabel && (
+                                <span className="text-xs text-gray-500 ml-2">({roundLabel})</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-8">No auction activity yet. Start an auction to see logs here.</p>
+            )}
+          </div>
+
+          {/* Round-by-Round Breakdown */}
+          <div className="card">
+            <h2 className="text-xl font-semibold mb-4">📊 Round Breakdown</h2>
+            {rounds.length > 0 ? (
+              <div className="space-y-4">
+                {rounds.map(round => {
+                  const roundPlayers = auctionPlayers.filter(p => p.roundId === round.id);
+                  const soldPlayers = roundPlayers.filter(p => p.status === 'sold');
+                  const unsoldPlayers = roundPlayers.filter(p => p.status === 'unsold');
+                  const pendingPlayers = roundPlayers.filter(p => p.status === 'pending');
+                  const totalSpent = soldPlayers.reduce((sum, p) => sum + (p.soldFor || 0), 0);
+                  
+                  return (
+                    <div key={round.id} className="bg-surface-light rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-medium">
+                          Round {round.roundNumber}: {round.name}
+                          {round.isActive && <span className="ml-2 text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Active</span>}
+                          {round.isCompleted && <span className="ml-2 text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded">Completed</span>}
+                        </h3>
+                        <span className="text-accent font-mono font-bold">${(totalSpent / 1000000).toFixed(2)}M spent</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-4 gap-4 text-sm mb-3">
+                        <div>
+                          <span className="text-gray-400">Total:</span> {roundPlayers.length}
+                        </div>
+                        <div>
+                          <span className="text-green-400">Sold:</span> {soldPlayers.length}
+                        </div>
+                        <div>
+                          <span className="text-yellow-400">Unsold:</span> {unsoldPlayers.length}
+                        </div>
+                        <div>
+                          <span className="text-gray-400">Pending:</span> {pendingPlayers.length}
+                        </div>
+                      </div>
+
+                      {/* Sold Players List */}
+                      {soldPlayers.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          <div className="text-xs text-gray-400 mb-2">Sold Players:</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {soldPlayers.map(player => (
+                              <div key={player.id} className="bg-surface rounded px-2 py-1 text-sm flex justify-between">
+                                <span>{player.name}</span>
+                                <span className="text-green-400 font-mono">
+                                  ${((player.soldFor || 0) / 1000000).toFixed(2)}M → {player.soldTo}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-4">No rounds created yet.</p>
+            )}
           </div>
         </div>
       )}

@@ -454,6 +454,7 @@ export async function GET(request: NextRequest) {
     const allRounds = await db.select().from(auctionRounds);
     const allAuctionPlayers = await db.select().from(auctionPlayers);
     const allUnsold = await db.select().from(unsoldPlayers);
+    const allLogs = await db.select().from(auctionLogs);
 
     return NextResponse.json({
       teams: allTeams,
@@ -461,6 +462,7 @@ export async function GET(request: NextRequest) {
       rounds: allRounds,
       auctionPlayers: allAuctionPlayers,
       unsoldPlayers: allUnsold,
+      auctionLogs: allLogs,
     });
   } catch (error) {
     console.error('Error fetching admin data:', error);
