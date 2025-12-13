@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions, ADMIN_IDS } from '@/lib/auth';
 import { db } from '@/db';
 import { auctionState, auctionPlayers, auctionRounds, teams, players, auctionLogs, unsoldPlayers } from '@/db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, like, gt } from 'drizzle-orm';
 
 const BID_INCREMENT_TIME = 12; // seconds for initial timer
 const BID_CONTINUE_TIME = 8; // seconds after each bid
@@ -11,33 +11,6 @@ const BID_CONTINUE_TIME = 8; // seconds after each bid
 // Simple lock to prevent concurrent control actions
 let controlLock = false;
 const lockTimeout = 3000;
-
-// Track recently processed sales to prevent duplicates (in-memory cache)
-const recentSales = new Map<number, number>(); // playerId -> timestamp
-const SALE_CACHE_DURATION = 10000; // 10 seconds
-
-function isRecentlySold(playerId: number): boolean {
-  const saleTime = recentSales.get(playerId);
-  if (!saleTime) return false;
-  if (Date.now() - saleTime > SALE_CACHE_DURATION) {
-    recentSales.delete(playerId);
-    return false;
-  }
-  return true;
-}
-
-function markAsSold(playerId: number) {
-  recentSales.set(playerId, Date.now());
-  // Cleanup old entries periodically
-  if (recentSales.size > 100) {
-    const now = Date.now();
-    for (const [pid, time] of recentSales.entries()) {
-      if (now - time > SALE_CACHE_DURATION) {
-        recentSales.delete(pid);
-      }
-    }
-  }
-}
 
 async function acquireControlLock(): Promise<boolean> {
   if (controlLock) return false;
@@ -115,27 +88,30 @@ async function finalizeSale(
   currentBid: number
 ) {
   try {
-    // FIRST CHECK: In-memory cache to catch duplicates quickly
-    if (isRecentlySold(currentPlayerId)) {
-      console.log('Sale rejected (memory cache) - player ID:', currentPlayerId);
-      return { success: false, message: 'Player already sold', alreadyProcessed: true };
+    // ATOMIC UPDATE with RETURNING - this is the key to preventing duplicates
+    // Only updates if status is 'current', and returns the updated row if successful
+    // If another request already changed status, this returns empty array
+    const saleTimestamp = new Date().toISOString();
+    const updateResult = await db.update(auctionPlayers)
+      .set({
+        status: 'sold',
+        soldFor: currentBid,
+        soldAt: saleTimestamp,
+      })
+      .where(and(
+        eq(auctionPlayers.id, currentPlayerId),
+        eq(auctionPlayers.status, 'current') // CRITICAL: Only update if still 'current'
+      ))
+      .returning();
+    
+    // If no rows were updated, another request already processed this sale
+    if (!updateResult || updateResult.length === 0) {
+      console.log('Sale rejected - atomic update returned no rows (already processed)');
+      return { success: false, message: 'Already processed', alreadyProcessed: true };
     }
     
-    // Get the current player info first
-    const currentPlayerArr = await db.select()
-      .from(auctionPlayers)
-      .where(eq(auctionPlayers.id, currentPlayerId));
-
-    const currentPlayer = currentPlayerArr[0];
-    if (!currentPlayer) {
-      return { success: false, message: 'Player not found' };
-    }
-    
-    // CRITICAL CHECK: If already sold, return immediately
-    if (currentPlayer.status === 'sold') {
-      console.log('Sale rejected - player already has sold status:', currentPlayer.name);
-      return { success: false, message: 'Player already sold', alreadyProcessed: true };
-    }
+    const currentPlayer = updateResult[0];
+    console.log('Atomic update successful for player:', currentPlayer.name);
 
     // Get the winning team
     const winningTeamArr = await db.select()
@@ -144,71 +120,33 @@ async function finalizeSale(
 
     const winningTeam = winningTeamArr[0];
     if (!winningTeam) {
+      // Rollback: mark player as current again since we couldn't complete
+      await db.update(auctionPlayers)
+        .set({ status: 'current', soldFor: null, soldAt: null })
+        .where(eq(auctionPlayers.id, currentPlayerId));
       return { success: false, message: 'Winning team not found' };
-    }
-    
-    // CRITICAL CHECK: Check if player is ALREADY in the players (roster) table
-    const existingPlayerArr = await db.select()
-      .from(players)
-      .where(eq(players.name, currentPlayer.name));
-    
-    if (existingPlayerArr.length > 0) {
-      console.log('Sale rejected - player already in roster table:', currentPlayer.name);
-      // Also mark as sold in memory cache
-      markAsSold(currentPlayerId);
-      return { 
-        success: true, 
-        message: `${currentPlayer.name} already processed`,
-        alreadyProcessed: true 
-      };
-    }
-    
-    // Mark as sold in memory BEFORE database operations
-    markAsSold(currentPlayerId);
-    
-    // ATOMIC UPDATE: Update player status to 'sold' ONLY if it's still 'current'
-    await db.update(auctionPlayers)
-      .set({
-        status: 'sold',
-        soldTo: winningTeam.name,
-        soldFor: currentBid,
-        soldAt: new Date().toISOString(),
-      })
-      .where(and(
-        eq(auctionPlayers.id, currentPlayerId),
-        eq(auctionPlayers.status, 'current') // Only update if status is 'current'
-      ));
-    
-    // Verify the update worked by re-reading
-    const updatedPlayerArr = await db.select()
-      .from(auctionPlayers)
-      .where(eq(auctionPlayers.id, currentPlayerId));
-    
-    const updatedPlayer = updatedPlayerArr[0];
-    if (!updatedPlayer || updatedPlayer.status !== 'sold' || updatedPlayer.soldFor !== currentBid) {
-      console.log('Sale likely processed by another request:', currentPlayer.name);
-      return { success: false, message: 'Sale already processed', alreadyProcessed: true };
     }
 
     // Check if team has enough purse
     if (winningTeam.purse < currentBid) {
+      // Rollback: mark player as current again
+      await db.update(auctionPlayers)
+        .set({ status: 'current', soldFor: null, soldAt: null })
+        .where(eq(auctionPlayers.id, currentPlayerId));
       return { success: false, message: 'Winner has insufficient funds' };
     }
 
-    // Debug: Log the player data
-    console.log('Finalizing sale - Player data:', {
-      id: currentPlayer.id,
-      name: currentPlayer.name,
-      playerId: currentPlayer.playerId,
-      category: currentPlayer.category,
-    });
+    // Update soldTo
+    await db.update(auctionPlayers)
+      .set({ soldTo: winningTeam.name })
+      .where(eq(auctionPlayers.id, currentPlayerId));
 
     // Deduct from team purse
     await db.update(teams)
       .set({ purse: winningTeam.purse - currentBid })
       .where(eq(teams.id, winningTeam.id));
 
-    // Add player to team roster - generate player ID from name if not available
+    // Generate player ID
     const generatePlayerId = (playerName: string): string => {
       return playerName
         .toLowerCase()
@@ -219,39 +157,56 @@ async function finalizeSale(
     };
     const playerIdToUse = currentPlayer.playerId || generatePlayerId(currentPlayer.name);
     
-    // Final check before insert - make sure player wasn't added by another request
-    const finalCheck = await db.select()
+    // Check if player already exists in roster before inserting
+    const existingRosterPlayer = await db.select()
       .from(players)
       .where(eq(players.name, currentPlayer.name));
     
-    if (finalCheck.length > 0) {
-      console.log('Player inserted by another request, skipping:', currentPlayer.name);
-      return { 
-        success: true, 
-        message: `${currentPlayer.name} sold to ${winningTeam.name} for $${currentBid.toLocaleString()}!`,
-        playerName: currentPlayer.name,
-        teamName: winningTeam.name,
-        amount: currentBid,
-        alreadyProcessed: true
-      };
+    if (existingRosterPlayer.length > 0) {
+      console.log('Player already in roster, skipping insert:', currentPlayer.name);
+    } else {
+      // Try to insert player - use try/catch to handle any remaining race conditions
+      try {
+        await db.insert(players).values({
+          playerId: playerIdToUse,
+          name: currentPlayer.name,
+          teamId: winningTeam.id,
+          category: currentPlayer.category || null,
+          boughtFor: currentBid,
+        });
+        console.log('Player inserted into roster:', currentPlayer.name);
+      } catch (insertError) {
+        // If insert fails (likely duplicate from race condition), just log and continue
+        console.log('Player insert failed (likely duplicate):', currentPlayer.name, insertError);
+      }
     }
-    
-    await db.insert(players).values({
-      playerId: playerIdToUse,
-      name: currentPlayer.name,
-      teamId: winningTeam.id,
-      category: currentPlayer.category || null,
-      boughtFor: currentBid,
-    });
 
-    // Log the sale
-    await logAction(
-      currentRoundId,
-      `${currentPlayer.name} sold to ${winningTeam.name} for $${currentBid.toLocaleString()}`,
-      'sale'
-    );
+    // Log the sale - also protect against duplicates
+    try {
+      // Check if a sale log for this player already exists in the last 10 seconds
+      const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+      const existingLogs = await db.select()
+        .from(auctionLogs)
+        .where(and(
+          eq(auctionLogs.logType, 'sale'),
+          like(auctionLogs.message, `${currentPlayer.name} sold to%`),
+          gt(auctionLogs.timestamp, tenSecondsAgo)
+        ));
+      
+      if (existingLogs.length === 0) {
+        await logAction(
+          currentRoundId,
+          `${currentPlayer.name} sold to ${winningTeam.name} for $${currentBid.toLocaleString()}`,
+          'sale'
+        );
+      } else {
+        console.log('Sale log already exists (within 10s), skipping duplicate log for:', currentPlayer.name);
+      }
+    } catch (logError) {
+      console.log('Log error (non-critical):', logError);
+    }
 
-    // Update auction state - player sold, waiting for admin to click Next
+    // Update auction state
     await db.update(auctionState)
       .set({
         isActive: true,
