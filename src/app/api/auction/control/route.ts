@@ -12,6 +12,33 @@ const BID_CONTINUE_TIME = 8; // seconds after each bid
 let controlLock = false;
 const lockTimeout = 3000;
 
+// Track recently processed sales to prevent duplicates (in-memory cache)
+const recentSales = new Map<number, number>(); // playerId -> timestamp
+const SALE_CACHE_DURATION = 10000; // 10 seconds
+
+function isRecentlySold(playerId: number): boolean {
+  const saleTime = recentSales.get(playerId);
+  if (!saleTime) return false;
+  if (Date.now() - saleTime > SALE_CACHE_DURATION) {
+    recentSales.delete(playerId);
+    return false;
+  }
+  return true;
+}
+
+function markAsSold(playerId: number) {
+  recentSales.set(playerId, Date.now());
+  // Cleanup old entries periodically
+  if (recentSales.size > 100) {
+    const now = Date.now();
+    for (const [pid, time] of recentSales.entries()) {
+      if (now - time > SALE_CACHE_DURATION) {
+        recentSales.delete(pid);
+      }
+    }
+  }
+}
+
 async function acquireControlLock(): Promise<boolean> {
   if (controlLock) return false;
   controlLock = true;
@@ -88,7 +115,13 @@ async function finalizeSale(
   currentBid: number
 ) {
   try {
-    // Get current player
+    // FIRST CHECK: In-memory cache to catch duplicates quickly
+    if (isRecentlySold(currentPlayerId)) {
+      console.log('Sale rejected (memory cache) - player ID:', currentPlayerId);
+      return { success: false, message: 'Player already sold', alreadyProcessed: true };
+    }
+    
+    // Get the current player info first
     const currentPlayerArr = await db.select()
       .from(auctionPlayers)
       .where(eq(auctionPlayers.id, currentPlayerId));
@@ -97,14 +130,12 @@ async function finalizeSale(
     if (!currentPlayer) {
       return { success: false, message: 'Player not found' };
     }
-
-    // Debug: Log the player data to see what playerId is
-    console.log('Finalizing sale - Player data:', {
-      id: currentPlayer.id,
-      name: currentPlayer.name,
-      playerId: currentPlayer.playerId,
-      category: currentPlayer.category,
-    });
+    
+    // CRITICAL CHECK: If already sold, return immediately
+    if (currentPlayer.status === 'sold') {
+      console.log('Sale rejected - player already has sold status:', currentPlayer.name);
+      return { success: false, message: 'Player already sold', alreadyProcessed: true };
+    }
 
     // Get the winning team
     const winningTeamArr = await db.select()
@@ -115,13 +146,27 @@ async function finalizeSale(
     if (!winningTeam) {
       return { success: false, message: 'Winning team not found' };
     }
-
-    // Check if team has enough purse
-    if (winningTeam.purse < currentBid) {
-      return { success: false, message: 'Winner has insufficient funds' };
+    
+    // CRITICAL CHECK: Check if player is ALREADY in the players (roster) table
+    const existingPlayerArr = await db.select()
+      .from(players)
+      .where(eq(players.name, currentPlayer.name));
+    
+    if (existingPlayerArr.length > 0) {
+      console.log('Sale rejected - player already in roster table:', currentPlayer.name);
+      // Also mark as sold in memory cache
+      markAsSold(currentPlayerId);
+      return { 
+        success: true, 
+        message: `${currentPlayer.name} already processed`,
+        alreadyProcessed: true 
+      };
     }
-
-    // Update player as sold
+    
+    // Mark as sold in memory BEFORE database operations
+    markAsSold(currentPlayerId);
+    
+    // ATOMIC UPDATE: Update player status to 'sold' ONLY if it's still 'current'
     await db.update(auctionPlayers)
       .set({
         status: 'sold',
@@ -129,7 +174,34 @@ async function finalizeSale(
         soldFor: currentBid,
         soldAt: new Date().toISOString(),
       })
+      .where(and(
+        eq(auctionPlayers.id, currentPlayerId),
+        eq(auctionPlayers.status, 'current') // Only update if status is 'current'
+      ));
+    
+    // Verify the update worked by re-reading
+    const updatedPlayerArr = await db.select()
+      .from(auctionPlayers)
       .where(eq(auctionPlayers.id, currentPlayerId));
+    
+    const updatedPlayer = updatedPlayerArr[0];
+    if (!updatedPlayer || updatedPlayer.status !== 'sold' || updatedPlayer.soldFor !== currentBid) {
+      console.log('Sale likely processed by another request:', currentPlayer.name);
+      return { success: false, message: 'Sale already processed', alreadyProcessed: true };
+    }
+
+    // Check if team has enough purse
+    if (winningTeam.purse < currentBid) {
+      return { success: false, message: 'Winner has insufficient funds' };
+    }
+
+    // Debug: Log the player data
+    console.log('Finalizing sale - Player data:', {
+      id: currentPlayer.id,
+      name: currentPlayer.name,
+      playerId: currentPlayer.playerId,
+      category: currentPlayer.category,
+    });
 
     // Deduct from team purse
     await db.update(teams)
@@ -147,13 +219,22 @@ async function finalizeSale(
     };
     const playerIdToUse = currentPlayer.playerId || generatePlayerId(currentPlayer.name);
     
-    // Debug: Log what playerId we're using
-    console.log('Inserting sold player:', {
-      playerIdFromAuction: currentPlayer.playerId,
-      playerIdToUse: playerIdToUse,
-      name: currentPlayer.name,
-      teamId: winningTeam.id,
-    });
+    // Final check before insert - make sure player wasn't added by another request
+    const finalCheck = await db.select()
+      .from(players)
+      .where(eq(players.name, currentPlayer.name));
+    
+    if (finalCheck.length > 0) {
+      console.log('Player inserted by another request, skipping:', currentPlayer.name);
+      return { 
+        success: true, 
+        message: `${currentPlayer.name} sold to ${winningTeam.name} for $${currentBid.toLocaleString()}!`,
+        playerName: currentPlayer.name,
+        teamName: winningTeam.name,
+        amount: currentBid,
+        alreadyProcessed: true
+      };
+    }
     
     await db.insert(players).values({
       playerId: playerIdToUse,
@@ -402,17 +483,36 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: 'No valid bid to finalize' }, { status: 400 });
         }
 
+        // Save the data before clearing state
+        const savedPlayerId = state.currentPlayerId;
+        const savedRoundId = state.currentRoundId;
+        const savedBidderId = state.highestBidderId;
+        const savedBid = state.currentBid || 0;
+        
+        // Clear state FIRST to prevent duplicate processing
+        await db.update(auctionState)
+          .set({
+            currentPlayerId: null,
+            currentBid: 0,
+            highestBidderId: null,
+            highestBidderTeam: null,
+            timerEndTime: null,
+            pausedTimeRemaining: null,
+            lastUpdated: new Date().toISOString(),
+          })
+          .where(eq(auctionState.id, state.id));
+
         const result = await finalizeSale(
           state.id,
-          state.currentPlayerId,
-          state.currentRoundId,
-          state.highestBidderId,
-          state.currentBid || 0
+          savedPlayerId,
+          savedRoundId,
+          savedBidderId,
+          savedBid
         );
         
         releaseControlLock();
         
-        if (!result.success) {
+        if (!result.success && !result.alreadyProcessed) {
           return NextResponse.json({ error: result.message }, { status: 400 });
         }
 
@@ -450,7 +550,12 @@ export async function POST(request: NextRequest) {
           
           if (!freshState || !freshState.currentPlayerId) {
             releaseControlLock();
-            return NextResponse.json({ error: 'Auction already processed' }, { status: 409 });
+            console.log('Timer expiry rejected - no current player (already processed)');
+            return NextResponse.json({ 
+              success: true, 
+              message: 'Already processed',
+              alreadyProcessed: true 
+            });
           }
           
           // Re-check timer with fresh state
@@ -467,46 +572,78 @@ export async function POST(request: NextRequest) {
             }, { status: 409 });
           }
           
-          // Use fresh state data for the sale
+          // CRITICAL: Clear currentPlayerId FIRST to prevent duplicate processing
+          // This acts as a lock - any other request will see currentPlayerId as null
+          const savedPlayerId = freshState.currentPlayerId;
+          const savedRoundId = freshState.currentRoundId;
+          const savedBidderId = freshState.highestBidderId!;
+          const savedBid = freshState.currentBid || 0;
+          
+          await db.update(auctionState)
+            .set({
+              currentPlayerId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+              lastUpdated: new Date().toISOString(),
+            })
+            .where(eq(auctionState.id, freshState.id));
+          
+          // Now process the sale with saved data
           const result = await finalizeSale(
             freshState.id,
-            freshState.currentPlayerId,
-            freshState.currentRoundId,
-            freshState.highestBidderId!,
-            freshState.currentBid || 0
+            savedPlayerId,
+            savedRoundId,
+            savedBidderId,
+            savedBid
           );
+          
+          // If already processed, that's fine - just return success
+          if (result.alreadyProcessed) {
+            releaseControlLock();
+            return NextResponse.json({ 
+              success: true, 
+              message: 'Already processed',
+              alreadyProcessed: true 
+            });
+          }
+          
           releaseControlLock();
           return NextResponse.json(result);
         } else {
           // No bidder - mark as unsold and wait for Next button
+          // CRITICAL: Clear state FIRST
+          const savedPlayerId = state.currentPlayerId;
+          
+          await db.update(auctionState)
+            .set({
+              isActive: true,
+              isPaused: false,
+              currentPlayerId: null,
+              currentBid: 0,
+              highestBidderId: null,
+              highestBidderTeam: null,
+              timerEndTime: null,
+              pausedTimeRemaining: null,
+              lastUpdated: new Date().toISOString(),
+            })
+            .where(eq(auctionState.id, state.id));
+          
           try {
             const currentPlayerArr = await db.select()
               .from(auctionPlayers)
-              .where(eq(auctionPlayers.id, state.currentPlayerId));
+              .where(eq(auctionPlayers.id, savedPlayerId));
 
-            if (currentPlayerArr[0]) {
+            if (currentPlayerArr[0] && currentPlayerArr[0].status !== 'unsold') {
               await db.update(auctionPlayers)
                 .set({ status: 'unsold' })
-                .where(eq(auctionPlayers.id, state.currentPlayerId));
+                .where(eq(auctionPlayers.id, savedPlayerId));
 
               await addToUnsold(currentPlayerArr[0], state.currentRoundId);
               await logAction(state.currentRoundId, `${currentPlayerArr[0].name} went unsold (no bids)`, 'unsold');
             }
-
-            // Update state - waiting for Next button
-            await db.update(auctionState)
-              .set({
-                isActive: true,
-                isPaused: false,
-                currentPlayerId: null,
-                currentBid: 0,
-                highestBidderId: null,
-                highestBidderTeam: null,
-                timerEndTime: null,
-                pausedTimeRemaining: null,
-                lastUpdated: new Date().toISOString(),
-              })
-              .where(eq(auctionState.id, state.id));
 
             releaseControlLock();
             return NextResponse.json({ 
