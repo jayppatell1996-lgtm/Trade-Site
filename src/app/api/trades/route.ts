@@ -108,7 +108,6 @@ async function sendDiscordDM(
         content: url ? `🔗 **Click here to respond:** <${url}>` : undefined,
         embeds: [embed],
       }),
-      }),
     });
 
     if (!messageRes.ok) {
