@@ -21,7 +21,7 @@ export const players = sqliteTable('players', {
   boughtFor: real('bought_for'),
 });
 
-// Trade history
+// Trade history (completed trades)
 export const trades = sqliteTable('trades', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   timestamp: text('timestamp').notNull(),
@@ -29,6 +29,23 @@ export const trades = sqliteTable('trades', {
   team2Name: text('team2_name').notNull(),
   players1: text('players1').notNull(), // JSON array
   players2: text('players2').notNull(), // JSON array
+});
+
+// Pending trade proposals
+export const pendingTrades = sqliteTable('pending_trades', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  proposerId: text('proposer_id').notNull(), // Discord ID of proposer
+  proposerTeamId: integer('proposer_team_id').references(() => teams.id),
+  proposerTeamName: text('proposer_team_name').notNull(),
+  targetId: text('target_id').notNull(), // Discord ID of target owner
+  targetTeamId: integer('target_team_id').references(() => teams.id),
+  targetTeamName: text('target_team_name').notNull(),
+  proposerPlayers: text('proposer_players').notNull(), // JSON array of player names
+  targetPlayers: text('target_players').notNull(), // JSON array of player names
+  status: text('status').default('pending'), // pending, accepted, rejected, cancelled
+  message: text('message'), // Optional message from proposer
+  createdAt: text('created_at').notNull(),
+  respondedAt: text('responded_at'),
 });
 
 // Auction rounds (6 rounds)
@@ -97,6 +114,8 @@ export type Player = typeof players.$inferSelect;
 export type NewPlayer = typeof players.$inferInsert;
 export type Trade = typeof trades.$inferSelect;
 export type NewTrade = typeof trades.$inferInsert;
+export type PendingTrade = typeof pendingTrades.$inferSelect;
+export type NewPendingTrade = typeof pendingTrades.$inferInsert;
 export type AuctionRound = typeof auctionRounds.$inferSelect;
 export type NewAuctionRound = typeof auctionRounds.$inferInsert;
 export type AuctionPlayer = typeof auctionPlayers.$inferSelect;
