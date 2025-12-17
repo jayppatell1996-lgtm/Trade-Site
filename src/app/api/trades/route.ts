@@ -56,7 +56,8 @@ async function sendDiscordDM(
   userId: string,
   title: string,
   description: string,
-  color: number = 0xffc61a
+  color: number = 0xffc61a,
+  url?: string
 ) {
   const botToken = process.env.DISCORD_BOT_TOKEN;
   if (!botToken) {
@@ -82,7 +83,21 @@ async function sendDiscordDM(
 
     const dmChannel = await dmChannelRes.json();
 
-    // Send the message
+    // Build embed with optional URL
+    const embed: any = {
+      title,
+      description,
+      color,
+      footer: { text: 'Wispbyte League Trade Center' },
+      timestamp: new Date().toISOString(),
+    };
+    
+    // If URL provided, add it to title to make it clickable
+    if (url) {
+      embed.url = url;
+    }
+
+    // Send the message with embed and content (content shows plain URL that auto-links)
     const messageRes = await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
       method: 'POST',
       headers: {
@@ -90,13 +105,9 @@ async function sendDiscordDM(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        embeds: [{
-          title,
-          description,
-          color,
-          footer: { text: 'Wispbyte League Trade Center' },
-          timestamp: new Date().toISOString(),
-        }],
+        content: url ? `🔗 **Click here to respond:** <${url}>` : undefined,
+        embeds: [embed],
+      }),
       }),
     });
 
@@ -230,16 +241,17 @@ export async function POST(request: NextRequest) {
     // Send Discord DM to target team owner
     const proposerPlayersList = players1.length > 0 ? players1.join(', ') : 'No players';
     const targetPlayersList = players2.length > 0 ? players2.join(', ') : 'No players';
+    const siteUrl = process.env.NEXTAUTH_URL || 'https://trade-site-nine.vercel.app';
     
     await sendDiscordDM(
       team2.ownerId,
       '📨 New Trade Proposal!',
       `**${team1.name}** has proposed a trade with your team **${team2.name}**!\n\n` +
       `**They offer:** ${proposerPlayersList}\n` +
-      `**They want:** ${targetPlayersList}\n` +
-      `${message ? `\n**Message:** ${message}\n` : ''}\n` +
-      `🔗 [Click here to review and respond](${process.env.NEXTAUTH_URL || 'https://trade-site-nine.vercel.app'}/trade-center)`,
-      0xffc61a // Yellow/gold color
+      `**They want:** ${targetPlayersList}` +
+      `${message ? `\n\n**Message:** ${message}` : ''}`,
+      0xffc61a, // Yellow/gold color
+      `${siteUrl}/trade-center`
     );
 
     return NextResponse.json({ 
