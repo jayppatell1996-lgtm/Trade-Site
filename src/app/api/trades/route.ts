@@ -5,6 +5,15 @@ import { db } from '@/db';
 import { trades, teams, players, pendingTrades } from '@/db/schema';
 import { eq, or, and } from 'drizzle-orm';
 
+// Helper to ensure URL has https:// scheme
+function getSiteUrl(): string {
+  let url = process.env.NEXTAUTH_URL || 'https://trade-site-nine.vercel.app';
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  return url;
+}
+
 // Discord webhook for trade notifications (public channel)
 async function sendTradeNotification(
   team1Name: string,
@@ -240,7 +249,7 @@ export async function POST(request: NextRequest) {
     // Send Discord DM to target team owner
     const proposerPlayersList = players1.length > 0 ? players1.join(', ') : 'No players';
     const targetPlayersList = players2.length > 0 ? players2.join(', ') : 'No players';
-    const siteUrl = process.env.NEXTAUTH_URL || 'https://trade-site-nine.vercel.app';
+    const siteUrl = getSiteUrl();
     
     await sendDiscordDM(
       team2.ownerId,
