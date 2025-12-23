@@ -51,10 +51,32 @@ interface AuctionLog {
   timestamp: string;
 }
 
+interface Tournament {
+  id: number;
+  name: string;
+  country: string;
+  numberOfGroups: number;
+  roundRobinType: string;
+  status: string;
+  totalMatches: number;
+  completedMatches: number;
+}
+
+interface Ground {
+  name: string;
+  city: string;
+}
+
+interface MatchConditions {
+  pitchTypes: string[];
+  pitchSurfaces: string[];
+  cracks: string[];
+}
+
 export default function AdminPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'teams' | 'rounds' | 'players' | 'logs' | 'upload'>('teams');
+  const [activeTab, setActiveTab] = useState<'teams' | 'rounds' | 'players' | 'logs' | 'upload' | 'fixtures'>('teams');
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -74,6 +96,22 @@ export default function AdminPage() {
   const [roundNumber, setRoundNumber] = useState(1);
   const [roundName, setRoundName] = useState('');
   const [fileContent, setFileContent] = useState('');
+
+  // Fixtures states
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [countries, setCountries] = useState<string[]>([]);
+  const [grounds, setGrounds] = useState<Ground[]>([]);
+  const [matchConditions, setMatchConditions] = useState<MatchConditions | null>(null);
+  const [showCreateTournament, setShowCreateTournament] = useState(false);
+  const [newTournament, setNewTournament] = useState({
+    name: '',
+    country: '',
+    selectedTeamIds: [] as number[],
+    numberOfGroups: 1,
+    roundRobinType: 'single' as 'single' | 'double',
+  });
+  const [generatedMatches, setGeneratedMatches] = useState<any[]>([]);
+  const [fixturesLoading, setFixturesLoading] = useState(false);
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
 
@@ -103,6 +141,207 @@ export default function AdminPage() {
       setLoading(false);
     }
   };
+
+  // Fixtures functions
+  const fetchFixturesData = async () => {
+    setFixturesLoading(true);
+    try {
+      const [tournamentsRes, countriesRes, conditionsRes] = await Promise.all([
+        fetch('/api/fixtures'),
+        fetch('/api/fixtures?type=countries'),
+        fetch('/api/fixtures?type=conditions'),
+      ]);
+      
+      if (tournamentsRes.ok) {
+        const data = await tournamentsRes.json();
+        setTournaments(Array.isArray(data) ? data : []);
+      }
+      if (countriesRes.ok) {
+        setCountries(await countriesRes.json());
+      }
+      if (conditionsRes.ok) {
+        setMatchConditions(await conditionsRes.json());
+      }
+    } catch (error) {
+      console.error('Error fetching fixtures data:', error);
+    } finally {
+      setFixturesLoading(false);
+    }
+  };
+
+  const fetchGroundsForCountry = async (country: string) => {
+    try {
+      const res = await fetch(`/api/fixtures?type=grounds&country=${encodeURIComponent(country)}`);
+      if (res.ok) {
+        setGrounds(await res.json());
+      }
+    } catch (error) {
+      console.error('Error fetching grounds:', error);
+    }
+  };
+
+  // Generate round-robin matches preview
+  const generateMatchesPreview = () => {
+    const { selectedTeamIds, numberOfGroups, roundRobinType } = newTournament;
+    if (selectedTeamIds.length < 2) return;
+
+    const selectedTeams = teams.filter(t => selectedTeamIds.includes(t.id));
+    const teamsPerGroup = Math.ceil(selectedTeams.length / numberOfGroups);
+    const groupedTeams: Team[][] = [];
+    
+    for (let i = 0; i < numberOfGroups; i++) {
+      groupedTeams.push(selectedTeams.slice(i * teamsPerGroup, (i + 1) * teamsPerGroup));
+    }
+
+    const allMatches: any[] = [];
+    let matchNum = 1;
+
+    groupedTeams.forEach((groupTeams, groupIndex) => {
+      const groupName = numberOfGroups > 1 ? `Group ${String.fromCharCode(65 + groupIndex)}` : 'League';
+      
+      for (let i = 0; i < groupTeams.length; i++) {
+        for (let j = i + 1; j < groupTeams.length; j++) {
+          const groundIndex = (matchNum - 1) % grounds.length;
+          const ground = grounds[groundIndex] || { name: 'TBD', city: 'TBD' };
+          
+          allMatches.push({
+            matchNumber: matchNum,
+            groupName,
+            team1Id: groupTeams[i].id,
+            team1Name: groupTeams[i].name,
+            team2Id: groupTeams[j].id,
+            team2Name: groupTeams[j].name,
+            venue: ground.name,
+            city: ground.city,
+            pitchType: matchConditions?.pitchTypes[0] || 'Standard',
+            pitchSurface: matchConditions?.pitchSurfaces[1] || 'Medium',
+            cracks: matchConditions?.cracks[0] || 'None',
+          });
+          matchNum++;
+
+          if (roundRobinType === 'double') {
+            const groundIndex2 = (matchNum - 1) % grounds.length;
+            const ground2 = grounds[groundIndex2] || { name: 'TBD', city: 'TBD' };
+            
+            allMatches.push({
+              matchNumber: matchNum,
+              groupName,
+              team1Id: groupTeams[j].id,
+              team1Name: groupTeams[j].name,
+              team2Id: groupTeams[i].id,
+              team2Name: groupTeams[i].name,
+              venue: ground2.name,
+              city: ground2.city,
+              pitchType: matchConditions?.pitchTypes[0] || 'Standard',
+              pitchSurface: matchConditions?.pitchSurfaces[1] || 'Medium',
+              cracks: matchConditions?.cracks[0] || 'None',
+            });
+            matchNum++;
+          }
+        }
+      }
+    });
+
+    setGeneratedMatches(allMatches);
+  };
+
+  const updateMatchCondition = (matchIndex: number, field: string, value: string) => {
+    setGeneratedMatches(prev => {
+      const updated = [...prev];
+      updated[matchIndex] = { ...updated[matchIndex], [field]: value };
+      return updated;
+    });
+  };
+
+  const updateMatchVenue = (matchIndex: number, venue: string, city: string) => {
+    setGeneratedMatches(prev => {
+      const updated = [...prev];
+      updated[matchIndex] = { ...updated[matchIndex], venue, city };
+      return updated;
+    });
+  };
+
+  const createTournament = async () => {
+    if (!newTournament.name || !newTournament.country || newTournament.selectedTeamIds.length < 2) {
+      setMessage({ type: 'error', text: 'Please fill all required fields and select at least 2 teams' });
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/fixtures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newTournament,
+          matchSchedule: generatedMatches.map(m => ({
+            team1Id: m.team1Id,
+            team2Id: m.team2Id,
+            venue: m.venue,
+            city: m.city,
+            pitchType: m.pitchType,
+            pitchSurface: m.pitchSurface,
+            cracks: m.cracks,
+          })),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Tournament created successfully!' });
+        setShowCreateTournament(false);
+        setNewTournament({
+          name: '',
+          country: '',
+          selectedTeamIds: [],
+          numberOfGroups: 1,
+          roundRobinType: 'single',
+        });
+        setGeneratedMatches([]);
+        fetchFixturesData();
+      } else {
+        setMessage({ type: 'error', text: result.error || 'Failed to create tournament' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to create tournament' });
+    }
+  };
+
+  const deleteTournament = async (tournamentId: number, tournamentName: string) => {
+    if (!confirm(`Are you sure you want to delete "${tournamentName}"?\n\nThis will remove all matches and standings.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/fixtures?tournamentId=${tournamentId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Tournament deleted successfully' });
+        fetchFixturesData();
+      } else {
+        const result = await res.json();
+        setMessage({ type: 'error', text: result.error || 'Failed to delete tournament' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to delete tournament' });
+    }
+  };
+
+  // Effect to fetch fixtures data when tab changes
+  useEffect(() => {
+    if (activeTab === 'fixtures' && tournaments.length === 0) {
+      fetchFixturesData();
+    }
+  }, [activeTab]);
+
+  // Effect to generate preview when teams/groups/type changes
+  useEffect(() => {
+    if (newTournament.selectedTeamIds.length >= 2 && grounds.length > 0) {
+      generateMatchesPreview();
+    }
+  }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -343,8 +582,8 @@ export default function AdminPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-border pb-4">
-        {(['teams', 'rounds', 'players', 'logs', 'upload'] as const).map(tab => (
+      <div className="flex flex-wrap gap-2 border-b border-border pb-4">
+        {(['teams', 'rounds', 'players', 'logs', 'fixtures', 'upload'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -1053,6 +1292,254 @@ export default function AdminPage() {
               </div>
             ) : (
               <p className="text-gray-500 text-center py-4">No rounds created yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Fixtures Tab */}
+      {activeTab === 'fixtures' && (
+        <div className="space-y-6">
+          {/* Create Tournament Button */}
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold">Tournament Management</h2>
+            <button
+              onClick={() => {
+                setShowCreateTournament(!showCreateTournament);
+                if (!showCreateTournament && countries.length === 0) {
+                  fetchFixturesData();
+                }
+              }}
+              className="btn-primary"
+            >
+              {showCreateTournament ? 'Cancel' : '+ Create Tournament'}
+            </button>
+          </div>
+
+          {/* Create Tournament Form */}
+          {showCreateTournament && (
+            <div className="card bg-surface-light space-y-6">
+              <h3 className="font-semibold text-lg">Create New Tournament</h3>
+              
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Tournament Name *</label>
+                  <input
+                    type="text"
+                    value={newTournament.name}
+                    onChange={e => setNewTournament({ ...newTournament, name: e.target.value })}
+                    placeholder="e.g., Wispbyte Premier League 2025"
+                    className="input w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Country (for Stadiums) *</label>
+                  <select
+                    value={newTournament.country}
+                    onChange={e => {
+                      setNewTournament({ ...newTournament, country: e.target.value });
+                      fetchGroundsForCountry(e.target.value);
+                    }}
+                    className="input w-full"
+                  >
+                    <option value="">Select Country</option>
+                    {countries.map(country => (
+                      <option key={country} value={country}>{country}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tournament Settings */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Number of Groups</label>
+                  <select
+                    value={newTournament.numberOfGroups}
+                    onChange={e => setNewTournament({ ...newTournament, numberOfGroups: parseInt(e.target.value) })}
+                    className="input w-full"
+                  >
+                    {[1, 2, 3, 4].map(n => (
+                      <option key={n} value={n}>{n === 1 ? 'Single League' : `${n} Groups`}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Round Robin Type</label>
+                  <select
+                    value={newTournament.roundRobinType}
+                    onChange={e => setNewTournament({ ...newTournament, roundRobinType: e.target.value as 'single' | 'double' })}
+                    className="input w-full"
+                  >
+                    <option value="single">Single Round Robin (Home/Away once)</option>
+                    <option value="double">Double Round Robin (Home & Away)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Team Selection */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  Select Teams * ({newTournament.selectedTeamIds.length} selected)
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-48 overflow-y-auto p-2 bg-surface rounded-lg">
+                  {teams.map(team => (
+                    <label
+                      key={team.id}
+                      className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
+                        newTournament.selectedTeamIds.includes(team.id)
+                          ? 'bg-accent/20 border border-accent'
+                          : 'bg-surface-light hover:bg-surface-light/80'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={newTournament.selectedTeamIds.includes(team.id)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setNewTournament({
+                              ...newTournament,
+                              selectedTeamIds: [...newTournament.selectedTeamIds, team.id],
+                            });
+                          } else {
+                            setNewTournament({
+                              ...newTournament,
+                              selectedTeamIds: newTournament.selectedTeamIds.filter(id => id !== team.id),
+                            });
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <span className="text-sm truncate">{team.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Match Preview */}
+              {generatedMatches.length > 0 && (
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <label className="block text-sm text-gray-400">
+                      Generated Matches ({generatedMatches.length} matches)
+                    </label>
+                    <span className="text-xs text-gray-500">Edit venue and conditions for each match</span>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto space-y-2 bg-surface rounded-lg p-3">
+                    {generatedMatches.map((match, index) => (
+                      <div key={index} className="bg-surface-light rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs text-gray-500">Match {match.matchNumber} • {match.groupName}</span>
+                        </div>
+                        <div className="font-medium mb-3">
+                          {match.team1Name} <span className="text-gray-500">vs</span> {match.team2Name}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 text-sm">
+                          <select
+                            value={`${match.venue}|${match.city}`}
+                            onChange={e => {
+                              const [venue, city] = e.target.value.split('|');
+                              updateMatchVenue(index, venue, city);
+                            }}
+                            className="input text-xs py-1"
+                          >
+                            {grounds.map(g => (
+                              <option key={g.name} value={`${g.name}|${g.city}`}>
+                                {g.name}, {g.city}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={match.pitchType}
+                            onChange={e => updateMatchCondition(index, 'pitchType', e.target.value)}
+                            className="input text-xs py-1"
+                          >
+                            {matchConditions?.pitchTypes.map(pt => (
+                              <option key={pt} value={pt}>{pt}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={match.pitchSurface}
+                            onChange={e => updateMatchCondition(index, 'pitchSurface', e.target.value)}
+                            className="input text-xs py-1"
+                          >
+                            {matchConditions?.pitchSurfaces.map(ps => (
+                              <option key={ps} value={ps}>{ps}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={match.cracks}
+                            onChange={e => updateMatchCondition(index, 'cracks', e.target.value)}
+                            className="input text-xs py-1"
+                          >
+                            {matchConditions?.cracks.map(c => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={createTournament}
+                disabled={!newTournament.name || !newTournament.country || newTournament.selectedTeamIds.length < 2}
+                className="btn-primary w-full disabled:opacity-50"
+              >
+                Create Tournament with {generatedMatches.length} Matches
+              </button>
+            </div>
+          )}
+
+          {/* Tournaments List */}
+          <div className="card">
+            <h3 className="font-semibold mb-4">Existing Tournaments ({tournaments.length})</h3>
+            {fixturesLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-accent" />
+              </div>
+            ) : tournaments.length === 0 ? (
+              <p className="text-gray-500 text-center py-8">No tournaments created yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {tournaments.map(tournament => (
+                  <div key={tournament.id} className="bg-surface-light rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">{tournament.name}</h4>
+                      <div className="flex gap-4 text-sm text-gray-400 mt-1">
+                        <span>📍 {tournament.country}</span>
+                        <span>👥 {tournament.numberOfGroups === 1 ? 'League' : `${tournament.numberOfGroups} Groups`}</span>
+                        <span>🔄 {tournament.roundRobinType === 'double' ? 'Double' : 'Single'} RR</span>
+                        <span>🏏 {tournament.completedMatches}/{tournament.totalMatches} matches</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        tournament.status === 'ongoing' ? 'bg-green-500/20 text-green-400' :
+                        tournament.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
+                        'bg-yellow-500/20 text-yellow-400'
+                      }`}>
+                        {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
+                      </span>
+                      <button
+                        onClick={() => window.open(`/fixtures?tournamentId=${tournament.id}`, '_blank')}
+                        className="text-accent hover:underline text-sm"
+                      >
+                        View
+                      </button>
+                      <button
+                        onClick={() => deleteTournament(tournament.id, tournament.name)}
+                        className="text-red-400 hover:underline text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

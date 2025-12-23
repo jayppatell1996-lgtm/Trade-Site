@@ -107,6 +107,60 @@ export const unsoldPlayers = sqliteTable('unsold_players', {
   addedAt: text('added_at'),
 });
 
+// Tournaments/Fixtures
+export const tournaments = sqliteTable('tournaments', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  country: text('country').notNull(),
+  numberOfGroups: integer('number_of_groups').notNull().default(1),
+  roundRobinType: text('round_robin_type').notNull().default('single'), // 'single' or 'double'
+  status: text('status').default('upcoming'), // upcoming, ongoing, completed
+  createdAt: text('created_at').notNull(),
+});
+
+// Tournament Groups
+export const tournamentGroups = sqliteTable('tournament_groups', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  tournamentId: integer('tournament_id').references(() => tournaments.id),
+  name: text('name').notNull(), // e.g., "Group A", "Group B"
+  orderIndex: integer('order_index').default(0),
+});
+
+// Teams in Groups
+export const groupTeams = sqliteTable('group_teams', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  groupId: integer('group_id').references(() => tournamentGroups.id),
+  teamId: integer('team_id').references(() => teams.id),
+  played: integer('played').default(0),
+  won: integer('won').default(0),
+  lost: integer('lost').default(0),
+  tied: integer('tied').default(0),
+  nrr: real('nrr').default(0),
+  points: integer('points').default(0),
+});
+
+// Matches/Fixtures
+export const matches = sqliteTable('matches', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  tournamentId: integer('tournament_id').references(() => tournaments.id),
+  groupId: integer('group_id').references(() => tournamentGroups.id),
+  matchNumber: integer('match_number').notNull(),
+  team1Id: integer('team1_id').references(() => teams.id),
+  team2Id: integer('team2_id').references(() => teams.id),
+  venue: text('venue').notNull(),
+  city: text('city'),
+  matchDate: text('match_date'),
+  matchTime: text('match_time'),
+  pitchType: text('pitch_type'), // Standard, Grassy, Dry, etc.
+  pitchSurface: text('pitch_surface'), // Soft, Medium, Heavy
+  cracks: text('cracks'), // None, Light, Heavy
+  status: text('status').default('upcoming'), // upcoming, live, completed
+  team1Score: text('team1_score'),
+  team2Score: text('team2_score'),
+  winnerId: integer('winner_id').references(() => teams.id),
+  result: text('result'), // e.g., "Team A won by 5 wickets"
+});
+
 // Type exports
 export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
@@ -123,3 +177,9 @@ export type NewAuctionPlayer = typeof auctionPlayers.$inferInsert;
 export type AuctionState = typeof auctionState.$inferSelect;
 export type AuctionLog = typeof auctionLogs.$inferSelect;
 export type UnsoldPlayer = typeof unsoldPlayers.$inferSelect;
+export type Tournament = typeof tournaments.$inferSelect;
+export type NewTournament = typeof tournaments.$inferInsert;
+export type TournamentGroup = typeof tournamentGroups.$inferSelect;
+export type GroupTeam = typeof groupTeams.$inferSelect;
+export type Match = typeof matches.$inferSelect;
+export type NewMatch = typeof matches.$inferInsert;

@@ -1,0 +1,4 @@
+Match Conditions:
+Pitch Type: Standard, Grassy, Dry, Grassy/Dry, Grassy/Dusty, Dusty
+Pitch Surface: Soft, Medium, Heavy
+Cracks: None, Light, Heavy

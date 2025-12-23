@@ -11,6 +11,7 @@ const baseLinks = [
   { href: '/franchises', label: 'Franchises' },
   { href: '/trade-center', label: 'Trade Center' },
   { href: '/auction', label: 'Auction' },
+  { href: '/fixtures', label: 'Fixtures' },
   { href: '/auction-summary', label: 'Summary' },
 ];
 
