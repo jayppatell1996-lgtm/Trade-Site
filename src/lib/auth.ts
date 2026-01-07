@@ -2,7 +2,7 @@ import { AuthOptions } from 'next-auth';
 import DiscordProvider from 'next-auth/providers/discord';
 
 // Admin Discord IDs (PS and CT owners)
-export const ADMIN_IDS = ['256972361918578688'];
+export const ADMIN_IDS = ['256972361918578688', '1111497896018313268'];
 
 // Extend the built-in types
 declare module 'next-auth' {

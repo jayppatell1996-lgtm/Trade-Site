@@ -112,6 +112,17 @@ export default function AdminPage() {
   });
   const [generatedMatches, setGeneratedMatches] = useState<any[]>([]);
   const [fixturesLoading, setFixturesLoading] = useState(false);
+  
+  // Match management states
+  const [selectedTournamentId, setSelectedTournamentId] = useState<number | null>(null);
+  const [tournamentMatches, setTournamentMatches] = useState<any[]>([]);
+  const [editingMatch, setEditingMatch] = useState<any | null>(null);
+  const [matchResultForm, setMatchResultForm] = useState({
+    team1Score: '',
+    team2Score: '',
+    winnerId: null as number | null,
+    result: '',
+  });
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
 
@@ -180,6 +191,11 @@ export default function AdminPage() {
     }
   };
 
+  // Helper function to get random element from array
+  const getRandomElement = <T,>(arr: T[]): T => {
+    return arr[Math.floor(Math.random() * arr.length)];
+  };
+
   // Generate round-robin matches preview
   const generateMatchesPreview = () => {
     const { selectedTeamIds, numberOfGroups, roundRobinType } = newTournament;
@@ -195,6 +211,11 @@ export default function AdminPage() {
 
     const allMatches: any[] = [];
     let matchNum = 1;
+
+    // Get conditions arrays with fallbacks
+    const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry', 'Grassy/Dry', 'Grassy/Dusty', 'Dusty'];
+    const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
+    const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
 
     groupedTeams.forEach((groupTeams, groupIndex) => {
       const groupName = numberOfGroups > 1 ? `Group ${String.fromCharCode(65 + groupIndex)}` : 'League';
@@ -213,9 +234,9 @@ export default function AdminPage() {
             team2Name: groupTeams[j].name,
             venue: ground.name,
             city: ground.city,
-            pitchType: matchConditions?.pitchTypes[0] || 'Standard',
-            pitchSurface: matchConditions?.pitchSurfaces[1] || 'Medium',
-            cracks: matchConditions?.cracks[0] || 'None',
+            pitchType: getRandomElement(pitchTypes),
+            pitchSurface: getRandomElement(pitchSurfaces),
+            cracks: getRandomElement(cracksOptions),
           });
           matchNum++;
 
@@ -232,9 +253,9 @@ export default function AdminPage() {
               team2Name: groupTeams[i].name,
               venue: ground2.name,
               city: ground2.city,
-              pitchType: matchConditions?.pitchTypes[0] || 'Standard',
-              pitchSurface: matchConditions?.pitchSurfaces[1] || 'Medium',
-              cracks: matchConditions?.cracks[0] || 'None',
+              pitchType: getRandomElement(pitchTypes),
+              pitchSurface: getRandomElement(pitchSurfaces),
+              cracks: getRandomElement(cracksOptions),
             });
             matchNum++;
           }
@@ -338,10 +359,85 @@ export default function AdminPage() {
 
   // Effect to generate preview when teams/groups/type changes
   useEffect(() => {
-    if (newTournament.selectedTeamIds.length >= 2 && grounds.length > 0) {
+    if (newTournament.selectedTeamIds.length >= 2 && grounds.length > 0 && matchConditions) {
       generateMatchesPreview();
     }
-  }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds]);
+  }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds, matchConditions]);
+
+  // Regenerate all match conditions with new random values
+  const regenerateConditions = () => {
+    if (!matchConditions) return;
+    
+    const pitchTypes = matchConditions.pitchTypes;
+    const pitchSurfaces = matchConditions.pitchSurfaces;
+    const cracksOptions = matchConditions.cracks;
+    
+    setGeneratedMatches(prev => prev.map(match => ({
+      ...match,
+      pitchType: getRandomElement(pitchTypes),
+      pitchSurface: getRandomElement(pitchSurfaces),
+      cracks: getRandomElement(cracksOptions),
+    })));
+  };
+
+  // Update match result
+  const updateMatchResult = async (matchId: number, team1Score: string, team2Score: string, winnerId: number | null, result: string) => {
+    try {
+      const res = await fetch('/api/fixtures', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          matchId,
+          team1Score,
+          team2Score,
+          winnerId,
+          result,
+          status: 'completed',
+        }),
+      });
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Match result updated!' });
+        setEditingMatch(null);
+        setMatchResultForm({ team1Score: '', team2Score: '', winnerId: null, result: '' });
+        // Refresh tournament matches
+        if (selectedTournamentId) {
+          fetchTournamentMatches(selectedTournamentId);
+        }
+        fetchFixturesData();
+      } else {
+        const data = await res.json();
+        setMessage({ type: 'error', text: data.error || 'Failed to update match' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to update match' });
+    }
+  };
+
+  // Fetch matches for a specific tournament
+  const fetchTournamentMatches = async (tournamentId: number) => {
+    try {
+      const res = await fetch(`/api/fixtures?type=tournament&tournamentId=${tournamentId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTournamentMatches(data.matches || []);
+        setSelectedTournamentId(tournamentId);
+      }
+    } catch (error) {
+      console.error('Error fetching tournament matches:', error);
+    }
+  };
+
+  // Open match result editor
+  const openMatchEditor = (match: any) => {
+    setEditingMatch(match);
+    setMatchResultForm({
+      team1Score: match.team1Score || '',
+      team2Score: match.team2Score || '',
+      winnerId: match.winnerId || null,
+      result: match.result || '',
+    });
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1424,13 +1520,43 @@ export default function AdminPage() {
                     <label className="block text-sm text-gray-400">
                       Generated Matches ({generatedMatches.length} matches)
                     </label>
-                    <span className="text-xs text-gray-500">Edit venue and conditions for each match</span>
+                    <div className="flex gap-2 items-center">
+                      <button
+                        onClick={() => {
+                          const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry', 'Grassy/Dry', 'Grassy/Dusty', 'Dusty'];
+                          const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
+                          const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
+                          
+                          setGeneratedMatches(prev => prev.map(match => ({
+                            ...match,
+                            pitchType: getRandomElement(pitchTypes),
+                            pitchSurface: getRandomElement(pitchSurfaces),
+                            cracks: getRandomElement(cracksOptions),
+                          })));
+                        }}
+                        className="text-xs bg-surface hover:bg-surface-light px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        🎲 Randomize All Conditions
+                      </button>
+                      <span className="text-xs text-gray-500">or edit individually below</span>
+                    </div>
                   </div>
                   <div className="max-h-96 overflow-y-auto space-y-2 bg-surface rounded-lg p-3">
                     {generatedMatches.map((match, index) => (
                       <div key={index} className="bg-surface-light rounded-lg p-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-xs text-gray-500">Match {match.matchNumber} • {match.groupName}</span>
+                          <div className="flex gap-1">
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                              match.pitchType.includes('Grassy') ? 'bg-green-500/20 text-green-400' :
+                              match.pitchType.includes('Dry') || match.pitchType.includes('Dusty') ? 'bg-yellow-500/20 text-yellow-400' :
+                              'bg-gray-500/20 text-gray-400'
+                            }`}>{match.pitchType}</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">{match.pitchSurface}</span>
+                            {match.cracks !== 'None' && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">{match.cracks} Cracks</span>
+                            )}
+                          </div>
                         </div>
                         <div className="font-medium mb-3">
                           {match.team1Name} <span className="text-gray-500">vs</span> {match.team2Name}
@@ -1506,42 +1632,204 @@ export default function AdminPage() {
             ) : (
               <div className="space-y-3">
                 {tournaments.map(tournament => (
-                  <div key={tournament.id} className="bg-surface-light rounded-lg p-4 flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium">{tournament.name}</h4>
-                      <div className="flex gap-4 text-sm text-gray-400 mt-1">
-                        <span>📍 {tournament.country}</span>
-                        <span>👥 {tournament.numberOfGroups === 1 ? 'League' : `${tournament.numberOfGroups} Groups`}</span>
-                        <span>🔄 {tournament.roundRobinType === 'double' ? 'Double' : 'Single'} RR</span>
-                        <span>🏏 {tournament.completedMatches}/{tournament.totalMatches} matches</span>
+                  <div key={tournament.id} className="bg-surface-light rounded-lg overflow-hidden">
+                    <div className="p-4 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-medium">{tournament.name}</h4>
+                        <div className="flex flex-wrap gap-2 md:gap-4 text-sm text-gray-400 mt-1">
+                          <span>📍 {tournament.country}</span>
+                          <span>👥 {tournament.numberOfGroups === 1 ? 'League' : `${tournament.numberOfGroups} Groups`}</span>
+                          <span>🔄 {tournament.roundRobinType === 'double' ? 'Double' : 'Single'} RR</span>
+                          <span>🏏 {tournament.completedMatches}/{tournament.totalMatches} matches</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          tournament.status === 'ongoing' ? 'bg-green-500/20 text-green-400' :
+                          tournament.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
+                          'bg-yellow-500/20 text-yellow-400'
+                        }`}>
+                          {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
+                        </span>
+                        <button
+                          onClick={() => {
+                            if (selectedTournamentId === tournament.id) {
+                              setSelectedTournamentId(null);
+                              setTournamentMatches([]);
+                            } else {
+                              fetchTournamentMatches(tournament.id);
+                            }
+                          }}
+                          className="text-accent hover:underline text-sm"
+                        >
+                          {selectedTournamentId === tournament.id ? 'Hide Matches' : 'Manage Matches'}
+                        </button>
+                        <button
+                          onClick={() => window.open(`/fixtures?tournamentId=${tournament.id}`, '_blank')}
+                          className="text-blue-400 hover:underline text-sm"
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => deleteTournament(tournament.id, tournament.name)}
+                          className="text-red-400 hover:underline text-sm"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        tournament.status === 'ongoing' ? 'bg-green-500/20 text-green-400' :
-                        tournament.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
-                        'bg-yellow-500/20 text-yellow-400'
-                      }`}>
-                        {tournament.status.charAt(0).toUpperCase() + tournament.status.slice(1)}
-                      </span>
-                      <button
-                        onClick={() => window.open(`/fixtures?tournamentId=${tournament.id}`, '_blank')}
-                        className="text-accent hover:underline text-sm"
-                      >
-                        View
-                      </button>
-                      <button
-                        onClick={() => deleteTournament(tournament.id, tournament.name)}
-                        className="text-red-400 hover:underline text-sm"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    
+                    {/* Expanded Match Management */}
+                    {selectedTournamentId === tournament.id && (
+                      <div className="border-t border-border p-4 bg-surface">
+                        <h4 className="font-medium mb-3">Match Results</h4>
+                        {tournamentMatches.length === 0 ? (
+                          <p className="text-gray-500 text-center py-4">No matches found</p>
+                        ) : (
+                          <div className="space-y-2 max-h-96 overflow-y-auto">
+                            {tournamentMatches.map((match: any) => (
+                              <div 
+                                key={match.id} 
+                                className={`p-3 rounded-lg ${
+                                  match.status === 'completed' ? 'bg-surface-light/50' : 'bg-surface-light'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                                      <span>Match {match.matchNumber}</span>
+                                      <span>•</span>
+                                      <span>{match.venue}</span>
+                                      <span className={`px-1.5 py-0.5 rounded ${
+                                        match.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                        'bg-yellow-500/20 text-yellow-400'
+                                      }`}>
+                                        {match.status}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`font-medium ${match.winnerId === match.team1Id ? 'text-green-400' : ''}`}>
+                                        {match.team1Name}
+                                      </span>
+                                      {match.team1Score && (
+                                        <span className="text-sm text-gray-400">{match.team1Score}</span>
+                                      )}
+                                      <span className="text-gray-500 mx-2">vs</span>
+                                      <span className={`font-medium ${match.winnerId === match.team2Id ? 'text-green-400' : ''}`}>
+                                        {match.team2Name}
+                                      </span>
+                                      {match.team2Score && (
+                                        <span className="text-sm text-gray-400">{match.team2Score}</span>
+                                      )}
+                                    </div>
+                                    {match.result && (
+                                      <p className="text-xs text-accent mt-1">{match.result}</p>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => openMatchEditor(match)}
+                                    className="text-xs bg-accent/20 hover:bg-accent/30 text-accent px-3 py-1.5 rounded transition-colors"
+                                  >
+                                    {match.status === 'completed' ? 'Edit Result' : 'Add Result'}
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          {/* Match Result Editor Modal */}
+          {editingMatch && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="card max-w-lg w-full m-4">
+                <h3 className="text-lg font-semibold mb-4">
+                  Update Match Result - Match {editingMatch.matchNumber}
+                </h3>
+                <div className="mb-4 text-center">
+                  <span className="font-medium text-lg">{editingMatch.team1Name}</span>
+                  <span className="text-gray-500 mx-3">vs</span>
+                  <span className="font-medium text-lg">{editingMatch.team2Name}</span>
+                </div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">{editingMatch.team1Name} Score</label>
+                      <input
+                        type="text"
+                        value={matchResultForm.team1Score}
+                        onChange={e => setMatchResultForm({ ...matchResultForm, team1Score: e.target.value })}
+                        placeholder="e.g., 185/6 (20)"
+                        className="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">{editingMatch.team2Name} Score</label>
+                      <input
+                        type="text"
+                        value={matchResultForm.team2Score}
+                        onChange={e => setMatchResultForm({ ...matchResultForm, team2Score: e.target.value })}
+                        placeholder="e.g., 180/8 (20)"
+                        className="input w-full"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Winner</label>
+                    <select
+                      value={matchResultForm.winnerId || ''}
+                      onChange={e => setMatchResultForm({ ...matchResultForm, winnerId: e.target.value ? parseInt(e.target.value) : null })}
+                      className="input w-full"
+                    >
+                      <option value="">Select Winner</option>
+                      <option value={editingMatch.team1Id}>{editingMatch.team1Name}</option>
+                      <option value={editingMatch.team2Id}>{editingMatch.team2Name}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Result Summary</label>
+                    <input
+                      type="text"
+                      value={matchResultForm.result}
+                      onChange={e => setMatchResultForm({ ...matchResultForm, result: e.target.value })}
+                      placeholder="e.g., Team A won by 5 runs"
+                      className="input w-full"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        setEditingMatch(null);
+                        setMatchResultForm({ team1Score: '', team2Score: '', winnerId: null, result: '' });
+                      }}
+                      className="flex-1 bg-surface-light hover:bg-surface py-2 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => updateMatchResult(
+                        editingMatch.id,
+                        matchResultForm.team1Score,
+                        matchResultForm.team2Score,
+                        matchResultForm.winnerId,
+                        matchResultForm.result
+                      )}
+                      disabled={!matchResultForm.winnerId}
+                      className="flex-1 btn-primary disabled:opacity-50"
+                    >
+                      Save Result
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
