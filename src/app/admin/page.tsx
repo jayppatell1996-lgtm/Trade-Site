@@ -123,6 +123,19 @@ export default function AdminPage() {
     winnerId: null as number | null,
     result: '',
   });
+  
+  // Fixture editing states
+  const [editingFixture, setEditingFixture] = useState<any | null>(null);
+  const [fixtureEditForm, setFixtureEditForm] = useState({
+    venue: '',
+    city: '',
+    matchDate: '',
+    matchTime: '',
+    pitchType: '',
+    pitchSurface: '',
+    cracks: '',
+  });
+  const [sendingToDiscord, setSendingToDiscord] = useState(false);
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
 
@@ -437,6 +450,77 @@ export default function AdminPage() {
       winnerId: match.winnerId || null,
       result: match.result || '',
     });
+  };
+
+  // Open fixture editor
+  const openFixtureEditor = (match: any) => {
+    setEditingFixture(match);
+    setFixtureEditForm({
+      venue: match.venue || '',
+      city: match.city || '',
+      matchDate: match.matchDate || '',
+      matchTime: match.matchTime || '',
+      pitchType: match.pitchType || 'Standard',
+      pitchSurface: match.pitchSurface || 'Medium',
+      cracks: match.cracks || 'None',
+    });
+  };
+
+  // Update fixture details
+  const updateFixture = async () => {
+    if (!editingFixture) return;
+
+    try {
+      const res = await fetch('/api/fixtures', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'edit_fixture',
+          matchId: editingFixture.id,
+          ...fixtureEditForm,
+        }),
+      });
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Fixture updated!' });
+        setEditingFixture(null);
+        if (selectedTournamentId) {
+          fetchTournamentMatches(selectedTournamentId);
+        }
+      } else {
+        const data = await res.json();
+        setMessage({ type: 'error', text: data.error || 'Failed to update fixture' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to update fixture' });
+    }
+  };
+
+  // Send fixtures to Discord
+  const sendFixturesToDiscord = async (tournamentId: number) => {
+    setSendingToDiscord(true);
+    try {
+      const res = await fetch('/api/fixtures', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send_to_discord',
+          tournamentId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: data.message || 'Fixtures sent to Discord!' });
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to send to Discord' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to send to Discord' });
+    } finally {
+      setSendingToDiscord(false);
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1643,7 +1727,7 @@ export default function AdminPage() {
                           <span>🏏 {tournament.completedMatches}/{tournament.totalMatches} matches</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-xs px-2 py-1 rounded ${
                           tournament.status === 'ongoing' ? 'bg-green-500/20 text-green-400' :
                           tournament.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
@@ -1663,6 +1747,13 @@ export default function AdminPage() {
                           className="text-accent hover:underline text-sm"
                         >
                           {selectedTournamentId === tournament.id ? 'Hide Matches' : 'Manage Matches'}
+                        </button>
+                        <button
+                          onClick={() => sendFixturesToDiscord(tournament.id)}
+                          disabled={sendingToDiscord}
+                          className="text-purple-400 hover:underline text-sm disabled:opacity-50"
+                        >
+                          {sendingToDiscord ? '📤 Sending...' : '📤 Send to Discord'}
                         </button>
                         <button
                           onClick={() => window.open(`/fixtures?tournamentId=${tournament.id}`, '_blank')}
@@ -1686,7 +1777,7 @@ export default function AdminPage() {
                         {tournamentMatches.length === 0 ? (
                           <p className="text-gray-500 text-center py-4">No matches found</p>
                         ) : (
-                          <div className="space-y-2 max-h-96 overflow-y-auto">
+                          <div className="space-y-2 max-h-[500px] overflow-y-auto">
                             {tournamentMatches.map((match: any) => (
                               <div 
                                 key={match.id} 
@@ -1694,27 +1785,28 @@ export default function AdminPage() {
                                   match.status === 'completed' ? 'bg-surface-light/50' : 'bg-surface-light'
                                 }`}
                               >
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-start justify-between gap-4">
                                   <div className="flex-1">
-                                    <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
-                                      <span>Match {match.matchNumber}</span>
-                                      <span>•</span>
-                                      <span>{match.venue}</span>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-1">
+                                      <span className="font-medium">Match {match.matchNumber}</span>
                                       <span className={`px-1.5 py-0.5 rounded ${
                                         match.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                                        match.status === 'live' ? 'bg-red-500/20 text-red-400' :
                                         'bg-yellow-500/20 text-yellow-400'
                                       }`}>
                                         {match.status}
                                       </span>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    
+                                    {/* Teams and Scores */}
+                                    <div className="flex items-center gap-2 mb-2">
                                       <span className={`font-medium ${match.winnerId === match.team1Id ? 'text-green-400' : ''}`}>
                                         {match.team1Name}
                                       </span>
                                       {match.team1Score && (
                                         <span className="text-sm text-gray-400">{match.team1Score}</span>
                                       )}
-                                      <span className="text-gray-500 mx-2">vs</span>
+                                      <span className="text-gray-500 mx-1">vs</span>
                                       <span className={`font-medium ${match.winnerId === match.team2Id ? 'text-green-400' : ''}`}>
                                         {match.team2Name}
                                       </span>
@@ -1722,16 +1814,51 @@ export default function AdminPage() {
                                         <span className="text-sm text-gray-400">{match.team2Score}</span>
                                       )}
                                     </div>
+                                    
                                     {match.result && (
-                                      <p className="text-xs text-accent mt-1">{match.result}</p>
+                                      <p className="text-xs text-accent mb-2">{match.result}</p>
                                     )}
+                                    
+                                    {/* Fixture Details */}
+                                    <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                                      <span>📍 {match.venue}{match.city ? `, ${match.city}` : ''}</span>
+                                      {match.matchDate && <span>📅 {match.matchDate}</span>}
+                                      {match.matchTime && <span>🕐 {match.matchTime}</span>}
+                                    </div>
+                                    
+                                    {/* Pitch Conditions */}
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {match.pitchType && (
+                                        <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                          match.pitchType.includes('Grassy') ? 'bg-green-500/20 text-green-400' :
+                                          match.pitchType.includes('Dry') || match.pitchType.includes('Dusty') ? 'bg-yellow-500/20 text-yellow-400' :
+                                          'bg-gray-500/20 text-gray-400'
+                                        }`}>{match.pitchType}</span>
+                                      )}
+                                      {match.pitchSurface && (
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">{match.pitchSurface}</span>
+                                      )}
+                                      {match.cracks && match.cracks !== 'None' && (
+                                        <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">{match.cracks} Cracks</span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <button
-                                    onClick={() => openMatchEditor(match)}
-                                    className="text-xs bg-accent/20 hover:bg-accent/30 text-accent px-3 py-1.5 rounded transition-colors"
-                                  >
-                                    {match.status === 'completed' ? 'Edit Result' : 'Add Result'}
-                                  </button>
+                                  
+                                  {/* Action Buttons */}
+                                  <div className="flex flex-col gap-2">
+                                    <button
+                                      onClick={() => openFixtureEditor(match)}
+                                      className="text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+                                    >
+                                      ✏️ Edit Fixture
+                                    </button>
+                                    <button
+                                      onClick={() => openMatchEditor(match)}
+                                      className="text-xs bg-accent/20 hover:bg-accent/30 text-accent px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+                                    >
+                                      {match.status === 'completed' ? '📊 Edit Result' : '📊 Add Result'}
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -1744,6 +1871,121 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+
+          {/* Fixture Editor Modal */}
+          {editingFixture && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="card max-w-lg w-full m-4 max-h-[90vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">
+                  Edit Fixture - Match {editingFixture.matchNumber}
+                </h3>
+                <div className="mb-4 text-center">
+                  <span className="font-medium">{editingFixture.team1Name}</span>
+                  <span className="text-gray-500 mx-3">vs</span>
+                  <span className="font-medium">{editingFixture.team2Name}</span>
+                </div>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Venue</label>
+                      <input
+                        type="text"
+                        value={fixtureEditForm.venue}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, venue: e.target.value })}
+                        placeholder="Stadium name"
+                        className="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">City</label>
+                      <input
+                        type="text"
+                        value={fixtureEditForm.city}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, city: e.target.value })}
+                        placeholder="City"
+                        className="input w-full"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Match Date</label>
+                      <input
+                        type="date"
+                        value={fixtureEditForm.matchDate}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, matchDate: e.target.value })}
+                        className="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Match Time</label>
+                      <input
+                        type="time"
+                        value={fixtureEditForm.matchTime}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, matchTime: e.target.value })}
+                        className="input w-full"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Pitch Type</label>
+                    <select
+                      value={fixtureEditForm.pitchType}
+                      onChange={e => setFixtureEditForm({ ...fixtureEditForm, pitchType: e.target.value })}
+                      className="input w-full"
+                    >
+                      <option value="Standard">Standard</option>
+                      <option value="Grassy">Grassy</option>
+                      <option value="Dry">Dry</option>
+                      <option value="Grassy/Dry">Grassy/Dry</option>
+                      <option value="Grassy/Dusty">Grassy/Dusty</option>
+                      <option value="Dusty">Dusty</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Pitch Surface</label>
+                      <select
+                        value={fixtureEditForm.pitchSurface}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, pitchSurface: e.target.value })}
+                        className="input w-full"
+                      >
+                        <option value="Soft">Soft</option>
+                        <option value="Medium">Medium</option>
+                        <option value="Heavy">Heavy</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Cracks</label>
+                      <select
+                        value={fixtureEditForm.cracks}
+                        onChange={e => setFixtureEditForm({ ...fixtureEditForm, cracks: e.target.value })}
+                        className="input w-full"
+                      >
+                        <option value="None">None</option>
+                        <option value="Light">Light</option>
+                        <option value="Heavy">Heavy</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => setEditingFixture(null)}
+                      className="flex-1 bg-surface-light hover:bg-surface py-2 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={updateFixture}
+                      className="flex-1 btn-primary"
+                    >
+                      Save Fixture
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Match Result Editor Modal */}
           {editingMatch && (

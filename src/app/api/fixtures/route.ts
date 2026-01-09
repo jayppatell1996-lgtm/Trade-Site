@@ -355,8 +355,119 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { matchId, team1Score, team2Score, winnerId, result, status } = body;
+    const { 
+      matchId, 
+      action,
+      // For result updates
+      team1Score, 
+      team2Score, 
+      winnerId, 
+      result, 
+      status,
+      // For fixture edits
+      venue,
+      city,
+      matchDate,
+      matchTime,
+      pitchType,
+      pitchSurface,
+      cracks,
+      // For Discord
+      tournamentId,
+    } = body;
 
+    // Action: Send fixtures to Discord
+    if (action === 'send_to_discord' && tournamentId) {
+      const webhookUrl = process.env.DISCORD_FIXTURES_WEBHOOK_URL;
+      if (!webhookUrl) {
+        return NextResponse.json({ error: 'Discord webhook not configured. Add DISCORD_FIXTURES_WEBHOOK_URL to environment variables.' }, { status: 400 });
+      }
+
+      // Get tournament details
+      const tournament = await db.select().from(tournaments).where(eq(tournaments.id, tournamentId));
+      if (tournament.length === 0) {
+        return NextResponse.json({ error: 'Tournament not found' }, { status: 404 });
+      }
+
+      // Get all matches
+      const tournamentMatches = await db.select().from(matches).where(eq(matches.tournamentId, tournamentId));
+      const allTeams = await db.select().from(teams);
+
+      // Build fixture list
+      const fixtureLines = tournamentMatches.map(match => {
+        const team1 = allTeams.find(t => t.id === match.team1Id)?.name || 'TBD';
+        const team2 = allTeams.find(t => t.id === match.team2Id)?.name || 'TBD';
+        const statusEmoji = match.status === 'completed' ? '✅' : match.status === 'live' ? '🔴' : '📅';
+        
+        let line = `${statusEmoji} **Match ${match.matchNumber}:** ${team1} vs ${team2}`;
+        line += `\n   📍 ${match.venue}${match.city ? `, ${match.city}` : ''}`;
+        
+        if (match.matchDate || match.matchTime) {
+          line += `\n   🗓️ ${match.matchDate || 'TBD'} ${match.matchTime || ''}`;
+        }
+        
+        if (match.pitchType) {
+          line += `\n   🏟️ ${match.pitchType} | ${match.pitchSurface || 'Medium'} | Cracks: ${match.cracks || 'None'}`;
+        }
+        
+        if (match.status === 'completed' && match.result) {
+          line += `\n   🏆 ${match.result}`;
+        }
+        
+        return line;
+      });
+
+      // Split into chunks if too long (Discord limit is 4096 for embed description)
+      const chunkSize = 10;
+      const chunks = [];
+      for (let i = 0; i < fixtureLines.length; i += chunkSize) {
+        chunks.push(fixtureLines.slice(i, i + chunkSize));
+      }
+
+      // Send embeds
+      for (let i = 0; i < chunks.length; i++) {
+        const embed = {
+          title: i === 0 ? `🏏 ${tournament[0].name} - Fixtures` : `🏏 Fixtures (continued)`,
+          description: chunks[i].join('\n\n'),
+          color: 0x00d4aa,
+          footer: {
+            text: `${tournament[0].country} • ${tournament[0].roundRobinType === 'double' ? 'Double' : 'Single'} Round Robin • Page ${i + 1}/${chunks.length}`,
+          },
+          timestamp: new Date().toISOString(),
+        };
+
+        await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ embeds: [embed] }),
+        });
+
+        // Small delay between messages
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+
+      return NextResponse.json({ success: true, message: `Fixtures sent to Discord (${chunks.length} message(s))` });
+    }
+
+    // Action: Edit fixture details
+    if (action === 'edit_fixture' && matchId) {
+      const updateData: any = {};
+      if (venue !== undefined) updateData.venue = venue;
+      if (city !== undefined) updateData.city = city;
+      if (matchDate !== undefined) updateData.matchDate = matchDate;
+      if (matchTime !== undefined) updateData.matchTime = matchTime;
+      if (pitchType !== undefined) updateData.pitchType = pitchType;
+      if (pitchSurface !== undefined) updateData.pitchSurface = pitchSurface;
+      if (cracks !== undefined) updateData.cracks = cracks;
+
+      await db.update(matches).set(updateData).where(eq(matches.id, matchId));
+
+      return NextResponse.json({ success: true, message: 'Fixture updated' });
+    }
+
+    // Default action: Update match result
     if (!matchId) {
       return NextResponse.json({ error: 'Match ID required' }, { status: 400 });
     }
