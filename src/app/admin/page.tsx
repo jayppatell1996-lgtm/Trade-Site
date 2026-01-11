@@ -243,7 +243,7 @@ export default function AdminPage() {
     
     // Fallback to simple random if no profile
     const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry'];
-    const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
+    const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Hard'];
     const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
     
     return {
@@ -1987,7 +1987,7 @@ export default function AdminPage() {
                       >
                         <option value="Soft">Soft</option>
                         <option value="Medium">Medium</option>
-                        <option value="Heavy">Heavy</option>
+                        <option value="Hard">Hard</option>
                       </select>
                     </div>
                     <div>
