@@ -161,6 +161,219 @@ export const matches = sqliteTable('matches', {
   result: text('result'), // e.g., "Team A won by 5 wickets"
 });
 
+// =============================================
+// PHASE 1 & 2: CRICKET SCORING & PLAYER STATS
+// =============================================
+
+// Innings data for each team in a match
+export const innings = sqliteTable('innings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id),
+  teamId: integer('team_id').references(() => teams.id),
+  inningsNumber: integer('innings_number').notNull(), // 1 or 2
+  totalRuns: integer('total_runs').default(0),
+  wickets: integer('wickets').default(0),
+  overs: real('overs').default(0), // e.g., 15.3 for 15 overs 3 balls
+  extras: integer('extras').default(0),
+  wides: integer('wides').default(0),
+  noBalls: integer('no_balls').default(0),
+  byes: integer('byes').default(0),
+  legByes: integer('leg_byes').default(0),
+  runRate: real('run_rate').default(0),
+  isCompleted: integer('is_completed', { mode: 'boolean' }).default(false),
+  target: integer('target'), // For 2nd innings
+  createdAt: text('created_at').notNull(),
+});
+
+// Ball-by-ball delivery tracking
+export const deliveries = sqliteTable('deliveries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  inningsId: integer('innings_id').references(() => innings.id),
+  matchId: integer('match_id').references(() => matches.id),
+  overNumber: integer('over_number').notNull(), // 0-indexed (0 = 1st over)
+  ballNumber: integer('ball_number').notNull(), // 1-6 (legal balls only)
+  batsmanId: integer('batsman_id').references(() => players.id),
+  batsmanName: text('batsman_name').notNull(),
+  nonStrikerId: integer('non_striker_id').references(() => players.id),
+  nonStrikerName: text('non_striker_name'),
+  bowlerId: integer('bowler_id').references(() => players.id),
+  bowlerName: text('bowler_name').notNull(),
+  runs: integer('runs').default(0), // Runs scored by batsman
+  extras: integer('extras').default(0), // Total extras on this ball
+  extraType: text('extra_type'), // wide, noball, bye, legbye, null
+  totalRuns: integer('total_runs').default(0), // runs + extras
+  isWicket: integer('is_wicket', { mode: 'boolean' }).default(false),
+  wicketType: text('wicket_type'), // bowled, caught, lbw, runout, stumped, hitwicket
+  dismissedBatsmanId: integer('dismissed_batsman_id').references(() => players.id),
+  dismissedBatsmanName: text('dismissed_batsman_name'),
+  fielderId: integer('fielder_id').references(() => players.id),
+  fielderName: text('fielder_name'),
+  isFour: integer('is_four', { mode: 'boolean' }).default(false),
+  isSix: integer('is_six', { mode: 'boolean' }).default(false),
+  timestamp: text('timestamp').notNull(),
+});
+
+// Per-match batting performance
+export const battingPerformances = sqliteTable('batting_performances', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id),
+  inningsId: integer('innings_id').references(() => innings.id),
+  playerId: integer('player_id').references(() => players.id),
+  playerName: text('player_name').notNull(),
+  teamId: integer('team_id').references(() => teams.id),
+  battingPosition: integer('batting_position'),
+  runs: integer('runs').default(0),
+  balls: integer('balls').default(0),
+  fours: integer('fours').default(0),
+  sixes: integer('sixes').default(0),
+  strikeRate: real('strike_rate').default(0),
+  isOut: integer('is_out', { mode: 'boolean' }).default(false),
+  howOut: text('how_out'), // "c Fielder b Bowler", "b Bowler", "not out"
+  dismissalType: text('dismissal_type'), // bowled, caught, lbw, etc.
+  bowlerId: integer('bowler_id').references(() => players.id),
+  bowlerName: text('bowler_name'),
+  fielderId: integer('fielder_id').references(() => players.id),
+  fielderName: text('fielder_name'),
+  isNotOut: integer('is_not_out', { mode: 'boolean' }).default(false),
+  createdAt: text('created_at').notNull(),
+});
+
+// Per-match bowling performance
+export const bowlingPerformances = sqliteTable('bowling_performances', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id),
+  inningsId: integer('innings_id').references(() => innings.id),
+  playerId: integer('player_id').references(() => players.id),
+  playerName: text('player_name').notNull(),
+  teamId: integer('team_id').references(() => teams.id),
+  overs: real('overs').default(0), // e.g., 4.0, 3.2
+  maidens: integer('maidens').default(0),
+  runs: integer('runs').default(0),
+  wickets: integer('wickets').default(0),
+  economy: real('economy').default(0),
+  wides: integer('wides').default(0),
+  noBalls: integer('no_balls').default(0),
+  dots: integer('dots').default(0),
+  fours: integer('fours_conceded').default(0),
+  sixes: integer('sixes_conceded').default(0),
+  createdAt: text('created_at').notNull(),
+});
+
+// Per-match fielding performance
+export const fieldingPerformances = sqliteTable('fielding_performances', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id),
+  playerId: integer('player_id').references(() => players.id),
+  playerName: text('player_name').notNull(),
+  teamId: integer('team_id').references(() => teams.id),
+  catches: integer('catches').default(0),
+  runOuts: integer('run_outs').default(0),
+  stumpings: integer('stumpings').default(0),
+  createdAt: text('created_at').notNull(),
+});
+
+// Aggregated player career stats (by tournament or overall)
+export const playerCareerStats = sqliteTable('player_career_stats', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  playerId: integer('player_id').references(() => players.id),
+  playerName: text('player_name').notNull(),
+  teamId: integer('team_id').references(() => teams.id),
+  tournamentId: integer('tournament_id').references(() => tournaments.id), // null = overall
+  
+  // Batting stats
+  battingMatches: integer('batting_matches').default(0),
+  battingInnings: integer('batting_innings').default(0),
+  totalRuns: integer('total_runs').default(0),
+  highestScore: integer('highest_score').default(0),
+  highestScoreNotOut: integer('highest_score_not_out', { mode: 'boolean' }).default(false),
+  battingAverage: real('batting_average').default(0),
+  battingStrikeRate: real('batting_strike_rate').default(0),
+  totalBalls: integer('total_balls').default(0),
+  totalFours: integer('total_fours').default(0),
+  totalSixes: integer('total_sixes').default(0),
+  fifties: integer('fifties').default(0),
+  hundreds: integer('hundreds').default(0),
+  ducks: integer('ducks').default(0),
+  notOuts: integer('not_outs').default(0),
+  
+  // Bowling stats
+  bowlingMatches: integer('bowling_matches').default(0),
+  bowlingInnings: integer('bowling_innings').default(0),
+  totalOvers: real('total_overs').default(0),
+  totalMaidens: integer('total_maidens').default(0),
+  totalRunsConceded: integer('total_runs_conceded').default(0),
+  totalWickets: integer('total_wickets').default(0),
+  bowlingAverage: real('bowling_average').default(0),
+  bowlingEconomy: real('bowling_economy').default(0),
+  bowlingStrikeRate: real('bowling_strike_rate').default(0),
+  bestBowlingWickets: integer('best_bowling_wickets').default(0),
+  bestBowlingRuns: integer('best_bowling_runs').default(0),
+  threeWickets: integer('three_wickets').default(0), // 3-fers
+  fiveWickets: integer('five_wickets').default(0), // 5-fers
+  
+  // Fielding stats
+  totalCatches: integer('total_catches').default(0),
+  totalRunOuts: integer('total_run_outs').default(0),
+  totalStumpings: integer('total_stumpings').default(0),
+  
+  // Awards
+  playerOfMatch: integer('player_of_match').default(0),
+  
+  lastUpdated: text('last_updated').notNull(),
+});
+
+// Match events/commentary timeline
+export const matchEvents = sqliteTable('match_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id),
+  inningsId: integer('innings_id').references(() => innings.id),
+  eventType: text('event_type').notNull(), // wicket, boundary, milestone, over_end, innings_end, match_start, match_end
+  overNumber: integer('over_number'),
+  ballNumber: integer('ball_number'),
+  description: text('description').notNull(),
+  timestamp: text('timestamp').notNull(),
+});
+
+// Current match scoring state (for live matches)
+export const liveMatchState = sqliteTable('live_match_state', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  matchId: integer('match_id').references(() => matches.id).unique(),
+  currentInningsId: integer('current_innings_id').references(() => innings.id),
+  currentInningsNumber: integer('current_innings_number').default(1),
+  battingTeamId: integer('batting_team_id').references(() => teams.id),
+  bowlingTeamId: integer('bowling_team_id').references(() => teams.id),
+  strikerId: integer('striker_id').references(() => players.id),
+  strikerName: text('striker_name'),
+  nonStrikerId: integer('non_striker_id').references(() => players.id),
+  nonStrikerName: text('non_striker_name'),
+  currentBowlerId: integer('current_bowler_id').references(() => players.id),
+  currentBowlerName: text('current_bowler_name'),
+  currentOver: integer('current_over').default(0),
+  currentBall: integer('current_ball').default(0), // balls in current over
+  isLive: integer('is_live', { mode: 'boolean' }).default(false),
+  isPaused: integer('is_paused', { mode: 'boolean' }).default(false),
+  lastUpdated: text('last_updated').notNull(),
+});
+
+// Partnerships tracking
+export const partnerships = sqliteTable('partnerships', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  inningsId: integer('innings_id').references(() => innings.id),
+  matchId: integer('match_id').references(() => matches.id),
+  wicketNumber: integer('wicket_number').notNull(), // Partnership for which wicket
+  batsman1Id: integer('batsman1_id').references(() => players.id),
+  batsman1Name: text('batsman1_name').notNull(),
+  batsman1Runs: integer('batsman1_runs').default(0),
+  batsman1Balls: integer('batsman1_balls').default(0),
+  batsman2Id: integer('batsman2_id').references(() => players.id),
+  batsman2Name: text('batsman2_name').notNull(),
+  batsman2Runs: integer('batsman2_runs').default(0),
+  batsman2Balls: integer('batsman2_balls').default(0),
+  totalRuns: integer('total_runs').default(0),
+  totalBalls: integer('total_balls').default(0),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true),
+});
+
 // Type exports
 export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
@@ -183,3 +396,16 @@ export type TournamentGroup = typeof tournamentGroups.$inferSelect;
 export type GroupTeam = typeof groupTeams.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type NewMatch = typeof matches.$inferInsert;
+export type Innings = typeof innings.$inferSelect;
+export type NewInnings = typeof innings.$inferInsert;
+export type Delivery = typeof deliveries.$inferSelect;
+export type NewDelivery = typeof deliveries.$inferInsert;
+export type BattingPerformance = typeof battingPerformances.$inferSelect;
+export type NewBattingPerformance = typeof battingPerformances.$inferInsert;
+export type BowlingPerformance = typeof bowlingPerformances.$inferSelect;
+export type NewBowlingPerformance = typeof bowlingPerformances.$inferInsert;
+export type FieldingPerformance = typeof fieldingPerformances.$inferSelect;
+export type PlayerCareerStats = typeof playerCareerStats.$inferSelect;
+export type MatchEvent = typeof matchEvents.$inferSelect;
+export type LiveMatchState = typeof liveMatchState.$inferSelect;
+export type Partnership = typeof partnerships.$inferSelect;

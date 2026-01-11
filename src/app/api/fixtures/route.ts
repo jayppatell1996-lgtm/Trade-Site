@@ -76,6 +76,379 @@ const GROUNDS_DATA: Record<string, { name: string; city: string }[]> = {
   ],
 };
 
+// Weighted probability types
+type WeightedOptions = Record<string, number>;
+interface VenueProfile {
+  pitchType: WeightedOptions;
+  surface: WeightedOptions;
+  cracks: WeightedOptions;
+}
+
+// Default regional crack distributions
+const SUBCONTINENT_WI_CRACKS: WeightedOptions = { 'Light': 40, 'Heavy': 40, 'None': 20 };
+const AUS_ENG_NZ_CRACKS: WeightedOptions = { 'None': 50, 'Light': 40, 'Heavy': 10 };
+
+// Comprehensive venue profiles with realistic weighted probabilities
+const VENUE_PROFILES: Record<string, VenueProfile> = {
+  // ============ INDIA ============
+  'MA Chidambaram Stadium': { // Chennai - historically spin-friendly, dry
+    pitchType: { 'Dusty': 40, 'Dry': 35, 'Standard': 20, 'Grassy/Dusty': 5 },
+    surface: { 'Soft': 35, 'Medium': 55, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Wankhede Stadium': { // Mumbai - traditionally good for batting, some pace
+    pitchType: { 'Standard': 40, 'Grassy': 25, 'Dry': 25, 'Dusty': 10 },
+    surface: { 'Medium': 50, 'Heavy': 35, 'Soft': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Eden Gardens': { // Kolkata - balanced, can offer swing early
+    pitchType: { 'Standard': 45, 'Grassy': 25, 'Dry': 20, 'Dusty': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Arun Jaitley Cricket Stadium': { // Delhi - dry, spin later
+    pitchType: { 'Dry': 40, 'Dusty': 30, 'Standard': 25, 'Grassy/Dusty': 5 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Narendra Modi Stadium': { // Ahmedabad - can be very spin-friendly
+    pitchType: { 'Dusty': 45, 'Dry': 30, 'Standard': 20, 'Grassy/Dusty': 5 },
+    surface: { 'Soft': 40, 'Medium': 50, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'HPCA Stadium': { // Dharamshala - mountain venue, grassy
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: { 'None': 40, 'Light': 40, 'Heavy': 20 }, // Less cracks due to climate
+  },
+  'Rajiv Gandhi International Stadium': { // Hyderabad - balanced
+    pitchType: { 'Standard': 40, 'Dry': 30, 'Dusty': 20, 'Grassy': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'ACA-VDCA Cricket Stadium': { // Visakhapatnam - good batting surface
+    pitchType: { 'Standard': 45, 'Dry': 30, 'Dusty': 15, 'Grassy': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Sawai Mansingh Stadium': { // Jaipur - dry, spin-friendly
+    pitchType: { 'Dry': 40, 'Dusty': 35, 'Standard': 20, 'Grassy/Dusty': 5 },
+    surface: { 'Soft': 40, 'Medium': 50, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'BRSABV Ekana Cricket Stadium': { // Lucknow - newer venue, balanced
+    pitchType: { 'Standard': 40, 'Dry': 30, 'Dusty': 20, 'Grassy': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'ACA Stadium': { // Guwahati - can have some grass
+    pitchType: { 'Standard': 35, 'Grassy': 30, 'Dry': 25, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Mullanpur Stadium': { // Chandigarh - newer venue
+    pitchType: { 'Standard': 40, 'Grassy': 25, 'Dry': 25, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+
+  // ============ PAKISTAN ============
+  'National Stadium': { // Karachi - traditionally flat, batting paradise
+    pitchType: { 'Standard': 50, 'Dry': 30, 'Dusty': 15, 'Grassy': 5 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Gaddafi Stadium': { // Lahore - can offer something for everyone
+    pitchType: { 'Standard': 35, 'Dry': 35, 'Dusty': 20, 'Grassy': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Rawalpindi Cricket Stadium': { // Rawalpindi - some grass, pace friendly
+    pitchType: { 'Grassy': 40, 'Standard': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Heavy': 30, 'Soft': 20 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Multan Cricket Stadium': { // Multan - very spin-friendly, dry
+    pitchType: { 'Dusty': 45, 'Dry': 35, 'Standard': 15, 'Grassy/Dusty': 5 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+
+  // ============ AUSTRALIA ============
+  'Perth Stadium': { // Perth - fast, bouncy, pace heaven
+    pitchType: { 'Grassy': 55, 'Standard': 25, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Heavy': 60, 'Medium': 35, 'Soft': 5 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'The Gabba': { // Brisbane - fast, bouncy, pace friendly
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Heavy': 55, 'Medium': 40, 'Soft': 5 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Melbourne Cricket Ground': { // MCG - traditionally seaming, can be flat
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Heavy': 40, 'Soft': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Sydney Cricket Ground': { // SCG - spin later, traditional pitch
+    pitchType: { 'Standard': 35, 'Dry': 30, 'Grassy': 20, 'Dusty': 15 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: { 'None': 40, 'Light': 45, 'Heavy': 15 }, // SCG can crack more
+  },
+  'Adelaide Oval': { // Adelaide - day/night tests, good for batting
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Bellerive Oval': { // Hobart - seaming conditions
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Medium': 50, 'Heavy': 35, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  // Default Australian venues
+  'Allan Border Field': {
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Heavy': 35, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Cazalys Stadium': {
+    pitchType: { 'Standard': 40, 'Grassy': 30, 'Dry': 20, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Coffs Harbour': {
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 25, 'Soft': 20 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Docklands Stadium': {
+    pitchType: { 'Standard': 50, 'Grassy': 25, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'GMHBA Stadium': {
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Heavy': 35, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Great Barrier Reef Arena': {
+    pitchType: { 'Standard': 40, 'Grassy': 30, 'Dry': 20, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Junction Oval': {
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 25, 'Soft': 20 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Karen Rolton Oval': {
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+
+  // ============ ENGLAND ============
+  "Lord's": { // Lord's - slope, traditional, seaming
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Soft': 40, 'Medium': 50, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Headingley': { // Leeds - green seamer, swing heaven
+    pitchType: { 'Grassy': 60, 'Grassy/Dry': 20, 'Standard': 15, 'Dry': 5 },
+    surface: { 'Soft': 50, 'Medium': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Edgbaston': { // Birmingham - good contest, some pace
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Kia Oval': { // London - can turn later, balanced
+    pitchType: { 'Standard': 40, 'Grassy': 25, 'Dry': 25, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: { 'None': 45, 'Light': 40, 'Heavy': 15 }, // Oval can crack
+  },
+  'Emirates Old Trafford': { // Manchester - can spin later
+    pitchType: { 'Standard': 35, 'Grassy': 30, 'Dry': 25, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Trent Bridge': { // Nottingham - seaming, swing
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Utilita Bowl': { // Southampton - seaming, swing
+    pitchType: { 'Grassy': 45, 'Standard': 35, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Sophia Gardens': { // Cardiff - balanced
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  '1st Central County Ground': { // Hove
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Northampton County Ground': {
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Taunton County Ground': {
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+
+  // ============ NEW ZEALAND ============
+  'Basin Reserve': { // Wellington - windy, seaming
+    pitchType: { 'Grassy': 55, 'Standard': 25, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Hagley Oval': { // Christchurch - green, seaming
+    pitchType: { 'Grassy': 60, 'Standard': 25, 'Grassy/Dry': 10, 'Dry': 5 },
+    surface: { 'Soft': 50, 'Medium': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Eden Park': { // Auckland - balanced
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'Bay Oval': { // Mt Maunganui - good batting
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'McLean Park': { // Napier
+    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'University of Otago Oval': { // Otago
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+
+  // ============ WEST INDIES ============
+  'Sabina Park': { // Kingston, Jamaica - fast, bouncy
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Heavy': 50, 'Medium': 40, 'Soft': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Kensington Oval': { // Barbados - good batting, some pace
+    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Heavy': 30, 'Soft': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  "Queen's Park Oval": { // Trinidad - can spin
+    pitchType: { 'Standard': 35, 'Dry': 35, 'Dusty': 20, 'Grassy': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Providence Stadium': { // Guyana - low, slow
+    pitchType: { 'Standard': 40, 'Dry': 35, 'Dusty': 15, 'Grassy': 10 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Sir Vivian Richards Stadium': { // Antigua - flat batting track
+    pitchType: { 'Standard': 50, 'Dry': 25, 'Grassy': 15, 'Dusty': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Brian Lara Stadium': { // Trinidad
+    pitchType: { 'Standard': 40, 'Dry': 30, 'Grassy': 20, 'Dusty': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Daren Sammy Cricket Ground': { // St Lucia
+    pitchType: { 'Standard': 45, 'Grassy': 25, 'Dry': 20, 'Grassy/Dry': 10 },
+    surface: { 'Medium': 55, 'Soft': 30, 'Heavy': 15 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Warner Park': { // St Kitts
+    pitchType: { 'Standard': 45, 'Dry': 25, 'Grassy': 20, 'Dusty': 10 },
+    surface: { 'Medium': 55, 'Soft': 35, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+};
+
+// Default profiles for regions (fallback if venue not found)
+const DEFAULT_PROFILES: Record<string, VenueProfile> = {
+  'India': {
+    pitchType: { 'Standard': 30, 'Dry': 30, 'Dusty': 25, 'Grassy': 10, 'Grassy/Dusty': 5 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Pakistan': {
+    pitchType: { 'Standard': 35, 'Dry': 30, 'Dusty': 25, 'Grassy': 10 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+  'Australia': {
+    pitchType: { 'Grassy': 40, 'Standard': 35, 'Grassy/Dry': 15, 'Dry': 10 },
+    surface: { 'Medium': 45, 'Heavy': 40, 'Soft': 15 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'England': {
+    pitchType: { 'Grassy': 45, 'Standard': 35, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Medium': 50, 'Soft': 40, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'New Zealand': {
+    pitchType: { 'Grassy': 50, 'Standard': 30, 'Grassy/Dry': 15, 'Dry': 5 },
+    surface: { 'Soft': 45, 'Medium': 45, 'Heavy': 10 },
+    cracks: AUS_ENG_NZ_CRACKS,
+  },
+  'West Indies': {
+    pitchType: { 'Standard': 40, 'Grassy': 25, 'Dry': 25, 'Dusty': 10 },
+    surface: { 'Medium': 50, 'Heavy': 30, 'Soft': 20 },
+    cracks: SUBCONTINENT_WI_CRACKS,
+  },
+};
+
+// Weighted random selection function
+function weightedRandom(weights: WeightedOptions): string {
+  const entries = Object.entries(weights);
+  const total = entries.reduce((sum, [_, weight]) => sum + weight, 0);
+  let random = Math.random() * total;
+  
+  for (const [option, weight] of entries) {
+    random -= weight;
+    if (random <= 0) return option;
+  }
+  
+  return entries[0][0]; // Fallback
+}
+
+// Get venue profile (with fallback to country default)
+function getVenueProfile(venueName: string, country: string): VenueProfile {
+  // Check for exact venue match
+  if (VENUE_PROFILES[venueName]) {
+    return VENUE_PROFILES[venueName];
+  }
+  
+  // Fallback to country default
+  return DEFAULT_PROFILES[country] || DEFAULT_PROFILES['England'];
+}
+
+// Generate realistic pitch conditions for a venue
+function generatePitchConditions(venueName: string, country: string): { pitchType: string; pitchSurface: string; cracks: string } {
+  const profile = getVenueProfile(venueName, country);
+  
+  return {
+    pitchType: weightedRandom(profile.pitchType),
+    pitchSurface: weightedRandom(profile.surface),
+    cracks: weightedRandom(profile.cracks),
+  };
+}
+
 const PITCH_TYPES = ['Standard', 'Grassy', 'Dry', 'Grassy/Dry', 'Grassy/Dusty', 'Dusty'];
 const PITCH_SURFACES = ['Soft', 'Medium', 'Heavy'];
 const CRACKS = ['None', 'Light', 'Heavy'];
@@ -104,6 +477,43 @@ export async function GET(request: NextRequest) {
         pitchTypes: PITCH_TYPES,
         pitchSurfaces: PITCH_SURFACES,
         cracks: CRACKS,
+      });
+    }
+
+    // Generate realistic conditions for a specific venue
+    if (type === 'venue_conditions') {
+      const venue = searchParams.get('venue');
+      const country = searchParams.get('country');
+      
+      if (!venue || !country) {
+        return NextResponse.json({ error: 'Venue and country required' }, { status: 400 });
+      }
+      
+      const conditions = generatePitchConditions(venue, country);
+      return NextResponse.json(conditions);
+    }
+
+    // Get venue profiles for frontend use
+    if (type === 'venue_profiles') {
+      const country = searchParams.get('country');
+      
+      if (country) {
+        const countryVenues = GROUNDS_DATA[country] || [];
+        const profiles: Record<string, VenueProfile> = {};
+        
+        for (const venue of countryVenues) {
+          profiles[venue.name] = getVenueProfile(venue.name, country);
+        }
+        
+        return NextResponse.json({
+          defaultProfile: DEFAULT_PROFILES[country] || DEFAULT_PROFILES['England'],
+          venueProfiles: profiles,
+        });
+      }
+      
+      return NextResponse.json({
+        defaultProfiles: DEFAULT_PROFILES,
+        venueProfiles: VENUE_PROFILES,
       });
     }
 

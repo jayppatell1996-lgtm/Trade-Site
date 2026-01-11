@@ -102,6 +102,8 @@ export default function AdminPage() {
   const [countries, setCountries] = useState<string[]>([]);
   const [grounds, setGrounds] = useState<Ground[]>([]);
   const [matchConditions, setMatchConditions] = useState<MatchConditions | null>(null);
+  const [venueProfiles, setVenueProfiles] = useState<Record<string, any>>({});
+  const [defaultProfile, setDefaultProfile] = useState<any>(null);
   const [showCreateTournament, setShowCreateTournament] = useState(false);
   const [newTournament, setNewTournament] = useState({
     name: '',
@@ -195,13 +197,60 @@ export default function AdminPage() {
 
   const fetchGroundsForCountry = async (country: string) => {
     try {
-      const res = await fetch(`/api/fixtures?type=grounds&country=${encodeURIComponent(country)}`);
-      if (res.ok) {
-        setGrounds(await res.json());
+      // Fetch grounds
+      const groundsRes = await fetch(`/api/fixtures?type=grounds&country=${encodeURIComponent(country)}`);
+      if (groundsRes.ok) {
+        setGrounds(await groundsRes.json());
+      }
+      
+      // Fetch venue profiles for realistic pitch conditions
+      const profilesRes = await fetch(`/api/fixtures?type=venue_profiles&country=${encodeURIComponent(country)}`);
+      if (profilesRes.ok) {
+        const data = await profilesRes.json();
+        setVenueProfiles(data.venueProfiles || {});
+        setDefaultProfile(data.defaultProfile || null);
       }
     } catch (error) {
       console.error('Error fetching grounds:', error);
     }
+  };
+
+  // Weighted random selection function
+  const weightedRandom = (weights: Record<string, number>): string => {
+    const entries = Object.entries(weights);
+    const total = entries.reduce((sum, [_, weight]) => sum + weight, 0);
+    let random = Math.random() * total;
+    
+    for (const [option, weight] of entries) {
+      random -= weight;
+      if (random <= 0) return option;
+    }
+    
+    return entries[0][0]; // Fallback
+  };
+
+  // Get pitch conditions for a venue using weighted probabilities
+  const getVenueConditions = (venueName: string): { pitchType: string; pitchSurface: string; cracks: string } => {
+    const profile = venueProfiles[venueName] || defaultProfile;
+    
+    if (profile) {
+      return {
+        pitchType: weightedRandom(profile.pitchType),
+        pitchSurface: weightedRandom(profile.surface),
+        cracks: weightedRandom(profile.cracks),
+      };
+    }
+    
+    // Fallback to simple random if no profile
+    const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry'];
+    const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
+    const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
+    
+    return {
+      pitchType: getRandomElement(pitchTypes),
+      pitchSurface: getRandomElement(pitchSurfaces),
+      cracks: getRandomElement(cracksOptions),
+    };
   };
 
   // Helper function to get random element from array
@@ -209,7 +258,7 @@ export default function AdminPage() {
     return arr[Math.floor(Math.random() * arr.length)];
   };
 
-  // Generate round-robin matches preview
+  // Generate round-robin matches preview with realistic venue-based conditions
   const generateMatchesPreview = () => {
     const { selectedTeamIds, numberOfGroups, roundRobinType } = newTournament;
     if (selectedTeamIds.length < 2) return;
@@ -225,11 +274,6 @@ export default function AdminPage() {
     const allMatches: any[] = [];
     let matchNum = 1;
 
-    // Get conditions arrays with fallbacks
-    const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry', 'Grassy/Dry', 'Grassy/Dusty', 'Dusty'];
-    const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
-    const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
-
     groupedTeams.forEach((groupTeams, groupIndex) => {
       const groupName = numberOfGroups > 1 ? `Group ${String.fromCharCode(65 + groupIndex)}` : 'League';
       
@@ -237,6 +281,9 @@ export default function AdminPage() {
         for (let j = i + 1; j < groupTeams.length; j++) {
           const groundIndex = (matchNum - 1) % grounds.length;
           const ground = grounds[groundIndex] || { name: 'TBD', city: 'TBD' };
+          
+          // Get realistic conditions based on venue profile
+          const conditions = getVenueConditions(ground.name);
           
           allMatches.push({
             matchNumber: matchNum,
@@ -247,15 +294,16 @@ export default function AdminPage() {
             team2Name: groupTeams[j].name,
             venue: ground.name,
             city: ground.city,
-            pitchType: getRandomElement(pitchTypes),
-            pitchSurface: getRandomElement(pitchSurfaces),
-            cracks: getRandomElement(cracksOptions),
+            ...conditions,
           });
           matchNum++;
 
           if (roundRobinType === 'double') {
             const groundIndex2 = (matchNum - 1) % grounds.length;
             const ground2 = grounds[groundIndex2] || { name: 'TBD', city: 'TBD' };
+            
+            // Get realistic conditions based on venue profile
+            const conditions2 = getVenueConditions(ground2.name);
             
             allMatches.push({
               matchNumber: matchNum,
@@ -266,9 +314,7 @@ export default function AdminPage() {
               team2Name: groupTeams[i].name,
               venue: ground2.name,
               city: ground2.city,
-              pitchType: getRandomElement(pitchTypes),
-              pitchSurface: getRandomElement(pitchSurfaces),
-              cracks: getRandomElement(cracksOptions),
+              ...conditions2,
             });
             matchNum++;
           }
@@ -372,25 +418,20 @@ export default function AdminPage() {
 
   // Effect to generate preview when teams/groups/type changes
   useEffect(() => {
-    if (newTournament.selectedTeamIds.length >= 2 && grounds.length > 0 && matchConditions) {
+    if (newTournament.selectedTeamIds.length >= 2 && grounds.length > 0 && (venueProfiles || defaultProfile || matchConditions)) {
       generateMatchesPreview();
     }
-  }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds, matchConditions]);
+  }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds, venueProfiles, defaultProfile]);
 
-  // Regenerate all match conditions with new random values
+  // Regenerate all match conditions with realistic venue-based random values
   const regenerateConditions = () => {
-    if (!matchConditions) return;
-    
-    const pitchTypes = matchConditions.pitchTypes;
-    const pitchSurfaces = matchConditions.pitchSurfaces;
-    const cracksOptions = matchConditions.cracks;
-    
-    setGeneratedMatches(prev => prev.map(match => ({
-      ...match,
-      pitchType: getRandomElement(pitchTypes),
-      pitchSurface: getRandomElement(pitchSurfaces),
-      cracks: getRandomElement(cracksOptions),
-    })));
+    setGeneratedMatches(prev => prev.map(match => {
+      const conditions = getVenueConditions(match.venue);
+      return {
+        ...match,
+        ...conditions,
+      };
+    }));
   };
 
   // Update match result
@@ -1601,26 +1642,20 @@ export default function AdminPage() {
               {generatedMatches.length > 0 && (
                 <div>
                   <div className="flex justify-between items-center mb-3">
-                    <label className="block text-sm text-gray-400">
-                      Generated Matches ({generatedMatches.length} matches)
-                    </label>
+                    <div>
+                      <label className="block text-sm text-gray-400">
+                        Generated Matches ({generatedMatches.length} matches)
+                      </label>
+                      <span className="text-xs text-accent">
+                        ✨ Pitch conditions based on real-world venue characteristics
+                      </span>
+                    </div>
                     <div className="flex gap-2 items-center">
                       <button
-                        onClick={() => {
-                          const pitchTypes = matchConditions?.pitchTypes || ['Standard', 'Grassy', 'Dry', 'Grassy/Dry', 'Grassy/Dusty', 'Dusty'];
-                          const pitchSurfaces = matchConditions?.pitchSurfaces || ['Soft', 'Medium', 'Heavy'];
-                          const cracksOptions = matchConditions?.cracks || ['None', 'Light', 'Heavy'];
-                          
-                          setGeneratedMatches(prev => prev.map(match => ({
-                            ...match,
-                            pitchType: getRandomElement(pitchTypes),
-                            pitchSurface: getRandomElement(pitchSurfaces),
-                            cracks: getRandomElement(cracksOptions),
-                          })));
-                        }}
+                        onClick={regenerateConditions}
                         className="text-xs bg-surface hover:bg-surface-light px-3 py-1.5 rounded-lg transition-colors"
                       >
-                        🎲 Randomize All Conditions
+                        🎲 Re-roll Realistic Conditions
                       </button>
                       <span className="text-xs text-gray-500">or edit individually below</span>
                     </div>
