@@ -51,12 +51,12 @@ const GROUNDS_DATA: Record<string, { name: string; city: string }[]> = {
     { name: 'Headingley', city: 'Leeds' },
     { name: 'Kia Oval', city: 'London' },
     { name: "Lord's", city: 'London' },
-    { name: 'Utilita Bowl', city: 'Southampton' },
+
     { name: 'Sophia Gardens', city: 'Cardiff' },
     { name: 'Trent Bridge', city: 'Nottingham' },
-    { name: '1st Central County Ground', city: 'Hove' },
-    { name: 'Northampton County Ground', city: 'Northampton' },
-    { name: 'Taunton County Ground', city: 'Taunton' },
+
+
+
   ],
   'Australia': [
     { name: 'Adelaide Oval', city: 'Adelaide' },
@@ -66,13 +66,13 @@ const GROUNDS_DATA: Record<string, { name: string; city: string }[]> = {
     { name: 'Perth Stadium', city: 'Perth' },
     { name: 'Sydney Cricket Ground', city: 'Sydney' },
     { name: 'Allan Border Field', city: 'Brisbane' },
-    { name: 'Cazalys Stadium', city: 'Cairns' },
+
     { name: 'Coffs Harbour', city: 'Coffs Harbour' },
     { name: 'Docklands Stadium', city: 'Melbourne' },
     { name: 'GMHBA Stadium', city: 'Geelong' },
     { name: 'Great Barrier Reef Arena', city: 'Brisbane' },
     { name: 'Junction Oval', city: 'Melbourne' },
-    { name: 'Karen Rolton Oval', city: 'Adelaide' },
+
   ],
 };
 
@@ -211,11 +211,6 @@ const VENUE_PROFILES: Record<string, VenueProfile> = {
     surface: { 'Medium': 50, 'Hard': 35, 'Soft': 15 },
     cracks: AUS_ENG_NZ_CRACKS,
   },
-  'Cazalys Stadium': {
-    pitchType: { 'Standard': 40, 'Grassy': 30, 'Dry': 20, 'Grassy/Dry': 10 },
-    surface: { 'Medium': 55, 'Hard': 30, 'Soft': 15 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
   'Coffs Harbour': {
     pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
     surface: { 'Medium': 55, 'Hard': 25, 'Soft': 20 },
@@ -239,11 +234,6 @@ const VENUE_PROFILES: Record<string, VenueProfile> = {
   'Junction Oval': {
     pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
     surface: { 'Medium': 55, 'Hard': 25, 'Soft': 20 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
-  'Karen Rolton Oval': {
-    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
-    surface: { 'Medium': 55, 'Hard': 30, 'Soft': 15 },
     cracks: AUS_ENG_NZ_CRACKS,
   },
 
@@ -278,28 +268,8 @@ const VENUE_PROFILES: Record<string, VenueProfile> = {
     surface: { 'Medium': 50, 'Soft': 40, 'Hard': 10 },
     cracks: AUS_ENG_NZ_CRACKS,
   },
-  'Utilita Bowl': { // Southampton - seaming, swing
-    pitchType: { 'Grassy': 45, 'Standard': 35, 'Grassy/Dry': 15, 'Dry': 5 },
-    surface: { 'Medium': 50, 'Soft': 40, 'Hard': 10 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
   'Sophia Gardens': { // Cardiff - balanced
     pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
-    surface: { 'Medium': 55, 'Soft': 35, 'Hard': 10 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
-  '1st Central County Ground': { // Hove
-    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
-    surface: { 'Medium': 50, 'Soft': 40, 'Hard': 10 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
-  'Northampton County Ground': {
-    pitchType: { 'Standard': 40, 'Grassy': 35, 'Grassy/Dry': 15, 'Dry': 10 },
-    surface: { 'Medium': 55, 'Soft': 35, 'Hard': 10 },
-    cracks: AUS_ENG_NZ_CRACKS,
-  },
-  'Taunton County Ground': {
-    pitchType: { 'Standard': 45, 'Grassy': 30, 'Dry': 15, 'Grassy/Dry': 10 },
     surface: { 'Medium': 55, 'Soft': 35, 'Hard': 10 },
     cracks: AUS_ENG_NZ_CRACKS,
   },
