@@ -120,8 +120,12 @@ export default function AdminPage() {
   const [tournamentMatches, setTournamentMatches] = useState<any[]>([]);
   const [editingMatch, setEditingMatch] = useState<any | null>(null);
   const [matchResultForm, setMatchResultForm] = useState({
-    team1Score: '',
-    team2Score: '',
+    team1Runs: '',
+    team1Wickets: '',
+    team1Overs: '',
+    team2Runs: '',
+    team2Wickets: '',
+    team2Overs: '',
     winnerId: null as number | null,
     result: '',
   });
@@ -453,7 +457,11 @@ export default function AdminPage() {
       if (res.ok) {
         setMessage({ type: 'success', text: 'Match result updated!' });
         setEditingMatch(null);
-        setMatchResultForm({ team1Score: '', team2Score: '', winnerId: null, result: '' });
+        setMatchResultForm({ 
+          team1Runs: '', team1Wickets: '', team1Overs: '',
+          team2Runs: '', team2Wickets: '', team2Overs: '',
+          winnerId: null, result: '' 
+        });
         // Refresh tournament matches
         if (selectedTournamentId) {
           fetchTournamentMatches(selectedTournamentId);
@@ -485,9 +493,33 @@ export default function AdminPage() {
   // Open match result editor
   const openMatchEditor = (match: any) => {
     setEditingMatch(match);
+    
+    // Parse existing scores into separate fields
+    const parseScore = (scoreStr: string | null): { runs: string; wickets: string; overs: string } => {
+      if (!scoreStr) return { runs: '', wickets: '', overs: '' };
+      
+      // Match patterns like "185/6 (20)" or "185/6 (19.4)" or "185 (20)"
+      const runsMatch = scoreStr.match(/^(\d+)/);
+      const wicketsMatch = scoreStr.match(/\/(\d+)/);
+      const oversMatch = scoreStr.match(/\((\d+\.?\d*)\)/);
+      
+      return {
+        runs: runsMatch ? runsMatch[1] : '',
+        wickets: wicketsMatch ? wicketsMatch[1] : '',
+        overs: oversMatch ? oversMatch[1] : '',
+      };
+    };
+    
+    const team1Parsed = parseScore(match.team1Score);
+    const team2Parsed = parseScore(match.team2Score);
+    
     setMatchResultForm({
-      team1Score: match.team1Score || '',
-      team2Score: match.team2Score || '',
+      team1Runs: team1Parsed.runs,
+      team1Wickets: team1Parsed.wickets,
+      team1Overs: team1Parsed.overs,
+      team2Runs: team2Parsed.runs,
+      team2Wickets: team2Parsed.wickets,
+      team2Overs: team2Parsed.overs,
       winnerId: match.winnerId || null,
       result: match.result || '',
     });
@@ -2035,28 +2067,86 @@ export default function AdminPage() {
                   <span className="font-medium text-lg">{editingMatch.team2Name}</span>
                 </div>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-gray-400 mb-1">{editingMatch.team1Name} Score</label>
-                      <input
-                        type="text"
-                        value={matchResultForm.team1Score}
-                        onChange={e => setMatchResultForm({ ...matchResultForm, team1Score: e.target.value })}
-                        placeholder="e.g., 185/6 (20)"
-                        className="input w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-gray-400 mb-1">{editingMatch.team2Name} Score</label>
-                      <input
-                        type="text"
-                        value={matchResultForm.team2Score}
-                        onChange={e => setMatchResultForm({ ...matchResultForm, team2Score: e.target.value })}
-                        placeholder="e.g., 180/8 (20)"
-                        className="input w-full"
-                      />
+                  {/* Team 1 Score */}
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">{editingMatch.team1Name} Score</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <input
+                          type="number"
+                          value={matchResultForm.team1Runs}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team1Runs: e.target.value })}
+                          placeholder="Runs"
+                          className="input w-full text-center"
+                          min="0"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Runs</span>
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={matchResultForm.team1Wickets}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team1Wickets: e.target.value })}
+                          placeholder="Wkts"
+                          className="input w-full text-center"
+                          min="0"
+                          max="10"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Wickets</span>
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          value={matchResultForm.team1Overs}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team1Overs: e.target.value })}
+                          placeholder="Overs"
+                          className="input w-full text-center"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Overs (e.g. 19.4)</span>
+                      </div>
                     </div>
                   </div>
+                  
+                  {/* Team 2 Score */}
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">{editingMatch.team2Name} Score</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <input
+                          type="number"
+                          value={matchResultForm.team2Runs}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team2Runs: e.target.value })}
+                          placeholder="Runs"
+                          className="input w-full text-center"
+                          min="0"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Runs</span>
+                      </div>
+                      <div>
+                        <input
+                          type="number"
+                          value={matchResultForm.team2Wickets}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team2Wickets: e.target.value })}
+                          placeholder="Wkts"
+                          className="input w-full text-center"
+                          min="0"
+                          max="10"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Wickets</span>
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          value={matchResultForm.team2Overs}
+                          onChange={e => setMatchResultForm({ ...matchResultForm, team2Overs: e.target.value })}
+                          placeholder="Overs"
+                          className="input w-full text-center"
+                        />
+                        <span className="text-xs text-gray-500 block text-center mt-1">Overs (e.g. 18.3)</span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Winner</label>
                     <select
@@ -2083,21 +2173,34 @@ export default function AdminPage() {
                     <button
                       onClick={() => {
                         setEditingMatch(null);
-                        setMatchResultForm({ team1Score: '', team2Score: '', winnerId: null, result: '' });
+                        setMatchResultForm({ 
+                          team1Runs: '', team1Wickets: '', team1Overs: '',
+                          team2Runs: '', team2Wickets: '', team2Overs: '',
+                          winnerId: null, result: '' 
+                        });
                       }}
                       className="flex-1 bg-surface-light hover:bg-surface py-2 rounded-lg transition-colors"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={() => updateMatchResult(
-                        editingMatch.id,
-                        matchResultForm.team1Score,
-                        matchResultForm.team2Score,
-                        matchResultForm.winnerId,
-                        matchResultForm.result
-                      )}
-                      disabled={!matchResultForm.winnerId}
+                      onClick={() => {
+                        // Combine fields into score strings
+                        const team1Score = matchResultForm.team1Runs 
+                          ? `${matchResultForm.team1Runs}${matchResultForm.team1Wickets ? '/' + matchResultForm.team1Wickets : ''} (${matchResultForm.team1Overs || '20'})`
+                          : '';
+                        const team2Score = matchResultForm.team2Runs
+                          ? `${matchResultForm.team2Runs}${matchResultForm.team2Wickets ? '/' + matchResultForm.team2Wickets : ''} (${matchResultForm.team2Overs || '20'})`
+                          : '';
+                        updateMatchResult(
+                          editingMatch.id,
+                          team1Score,
+                          team2Score,
+                          matchResultForm.winnerId,
+                          matchResultForm.result
+                        );
+                      }}
+                      disabled={!matchResultForm.winnerId || !matchResultForm.team1Runs || !matchResultForm.team2Runs}
                       className="flex-1 btn-primary disabled:opacity-50"
                     >
                       Save Result

@@ -510,6 +510,95 @@ export async function GET(request: NextRequest) {
 
       const allTeams = await db.select().from(teams);
 
+      // Helper function to parse score string and extract runs and overs
+      // Supports formats: "250/6 (48.2)", "180 (38)", "200/4 (20)", "185/6", "150 all out (45.3)"
+      const parseScore = (scoreStr: string | null, defaultOvers: number = 20): { runs: number; overs: number } | null => {
+        if (!scoreStr) return null;
+        
+        // Clean up the string
+        const cleanStr = scoreStr.trim();
+        
+        // Extract runs (number before / or space or end of string)
+        const runsMatch = cleanStr.match(/^(\d+)/);
+        if (!runsMatch) return null;
+        const runs = parseInt(runsMatch[1]);
+        
+        // Try to extract overs from parentheses (48.2) or (48)
+        const oversMatch = cleanStr.match(/\((\d+\.?\d*)\)/);
+        let overs: number;
+        
+        if (oversMatch) {
+          overs = parseFloat(oversMatch[1]);
+        } else {
+          // No overs specified - use default (20 for T20, could be 50 for ODI)
+          // Check if team was all out (all 10 wickets)
+          const wicketsMatch = cleanStr.match(/\/(\d+)/);
+          if (wicketsMatch && parseInt(wicketsMatch[1]) === 10) {
+            // All out - use default overs
+            overs = defaultOvers;
+          } else {
+            // Not all out and no overs - can't calculate accurately, use default
+            overs = defaultOvers;
+          }
+        }
+        
+        return { runs, overs };
+      };
+
+      // Convert overs to decimal (e.g., 19.4 overs = 19 + 4/6 = 19.667)
+      // In cricket notation, 19.4 means 19 overs and 4 balls
+      const oversToDecimal = (overs: number): number => {
+        const fullOvers = Math.floor(overs);
+        const balls = Math.round((overs - fullOvers) * 10); // .4 means 4 balls
+        // Validate balls (should be 0-5)
+        const validBalls = Math.min(balls, 5);
+        return fullOvers + (validBalls / 6);
+      };
+
+      // Calculate NRR for each team
+      // NRR = (Total runs scored / Total overs faced) - (Total runs conceded / Total overs bowled)
+      const calculateNRR = (teamId: number, groupId: number): number => {
+        const teamMatches = tournamentMatches.filter(m => 
+          m.status === 'completed' && 
+          m.groupId === groupId &&
+          (m.team1Id === teamId || m.team2Id === teamId) &&
+          m.team1Score && m.team2Score
+        );
+
+        if (teamMatches.length === 0) return 0;
+
+        let runsFor = 0;
+        let oversFor = 0;
+        let runsAgainst = 0;
+        let oversAgainst = 0;
+
+        for (const match of teamMatches) {
+          const isTeam1 = match.team1Id === teamId;
+          const teamScoreStr = isTeam1 ? match.team1Score : match.team2Score;
+          const oppScoreStr = isTeam1 ? match.team2Score : match.team1Score;
+
+          const teamScore = parseScore(teamScoreStr);
+          const oppScore = parseScore(oppScoreStr);
+
+          if (teamScore && oppScore) {
+            runsFor += teamScore.runs;
+            oversFor += oversToDecimal(teamScore.overs);
+            runsAgainst += oppScore.runs;
+            oversAgainst += oversToDecimal(oppScore.overs);
+          }
+        }
+
+        // Avoid division by zero
+        if (oversFor === 0 || oversAgainst === 0) return 0;
+
+        // Calculate NRR: run rate for - run rate against
+        const runRateFor = runsFor / oversFor;
+        const runRateAgainst = runsAgainst / oversAgainst;
+        const nrr = runRateFor - runRateAgainst;
+        
+        return Math.round(nrr * 1000) / 1000; // Round to 3 decimal places
+      };
+
       // Enrich matches with team names
       const enrichedMatches = tournamentMatches.map(match => ({
         ...match,
@@ -517,15 +606,19 @@ export async function GET(request: NextRequest) {
         team2Name: allTeams.find(t => t.id === match.team2Id)?.name || 'TBD',
       }));
 
-      // Organize groups with their teams
+      // Organize groups with their teams and calculate NRR
       const enrichedGroups = groups.map(group => ({
         ...group,
         teams: allGroupTeams
           .filter(gt => gt.group_teams.groupId === group.id)
-          .map(gt => ({
-            ...gt.group_teams,
-            teamName: gt.teams.name,
-          }))
+          .map(gt => {
+            const calculatedNRR = calculateNRR(gt.group_teams.teamId!, group.id);
+            return {
+              ...gt.group_teams,
+              teamName: gt.teams.name,
+              nrr: calculatedNRR,
+            };
+          })
           .sort((a, b) => (b.points || 0) - (a.points || 0) || (b.nrr || 0) - (a.nrr || 0)),
       }));
 
