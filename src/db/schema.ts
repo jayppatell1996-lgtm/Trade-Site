@@ -116,6 +116,10 @@ export const tournaments = sqliteTable('tournaments', {
   roundRobinType: text('round_robin_type').notNull().default('single'), // 'single' or 'double'
   status: text('status').default('upcoming'), // upcoming, ongoing, completed
   createdAt: text('created_at').notNull(),
+  // Playoff configuration
+  hasPlayoffs: integer('has_playoffs', { mode: 'boolean' }).default(false),
+  playoffStyle: text('playoff_style'), // 'ipl' (4 teams) or 'traditional' (2/4/8 teams)
+  playoffTeams: integer('playoff_teams'), // Number of teams in playoffs (2, 4, 8)
 });
 
 // Tournament Groups
@@ -152,13 +156,15 @@ export const matches = sqliteTable('matches', {
   matchDate: text('match_date'),
   matchTime: text('match_time'),
   pitchType: text('pitch_type'), // Standard, Grassy, Dry, etc.
-  pitchSurface: text('pitch_surface'), // Soft, Medium, Heavy
+  pitchSurface: text('pitch_surface'), // Soft, Medium, Hard
   cracks: text('cracks'), // None, Light, Heavy
   status: text('status').default('upcoming'), // upcoming, live, completed
   team1Score: text('team1_score'),
   team2Score: text('team2_score'),
   winnerId: integer('winner_id').references(() => teams.id),
   result: text('result'), // e.g., "Team A won by 5 wickets"
+  stage: text('stage').default('group'), // group, qualifier1, eliminator, qualifier2, semifinal, final, quarterfinal
+  stageName: text('stage_name'), // Display name like "Qualifier 1", "Semi-Final 1"
 });
 
 // Type exports

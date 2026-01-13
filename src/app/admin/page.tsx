@@ -60,6 +60,9 @@ interface Tournament {
   status: string;
   totalMatches: number;
   completedMatches: number;
+  hasPlayoffs?: boolean;
+  playoffStyle?: string;
+  playoffTeams?: number;
 }
 
 interface Ground {
@@ -111,8 +114,12 @@ export default function AdminPage() {
     selectedTeamIds: [] as number[],
     numberOfGroups: 1,
     roundRobinType: 'single' as 'single' | 'double',
+    hasPlayoffs: false,
+    playoffStyle: 'ipl' as 'ipl' | 'traditional',
+    playoffTeams: 4,
   });
   const [generatedMatches, setGeneratedMatches] = useState<any[]>([]);
+  const [playoffMatches, setPlayoffMatches] = useState<any[]>([]);
   const [fixturesLoading, setFixturesLoading] = useState(false);
   
   // Match management states
@@ -142,6 +149,14 @@ export default function AdminPage() {
     cracks: '',
   });
   const [sendingToDiscord, setSendingToDiscord] = useState(false);
+  
+  // Add playoffs to existing tournament
+  const [addingPlayoffsTo, setAddingPlayoffsTo] = useState<any | null>(null);
+  const [playoffConfig, setPlayoffConfig] = useState({
+    style: 'ipl' as 'ipl' | 'traditional',
+    teams: 4,
+  });
+  const [existingPlayoffMatches, setExistingPlayoffMatches] = useState<any[]>([]);
 
   const isAdmin = session?.user?.discordId && ADMIN_IDS.includes(session.user.discordId);
 
@@ -329,6 +344,214 @@ export default function AdminPage() {
     setGeneratedMatches(allMatches);
   };
 
+  // Generate playoff matches preview
+  const generatePlayoffMatchesPreview = () => {
+    const { hasPlayoffs, playoffStyle, playoffTeams, selectedTeamIds } = newTournament;
+    if (!hasPlayoffs || selectedTeamIds.length < playoffTeams) {
+      setPlayoffMatches([]);
+      return;
+    }
+
+    const playoffs: any[] = [];
+    let matchNum = generatedMatches.length + 1;
+
+    if (playoffStyle === 'ipl') {
+      // IPL Style (4 teams):
+      // Qualifier 1: 1st vs 2nd (Winner to Final)
+      // Eliminator: 3rd vs 4th (Loser eliminated)
+      // Qualifier 2: Loser Q1 vs Winner Eliminator (Winner to Final)
+      // Final: Winner Q1 vs Winner Q2
+
+      const playoffVenues = grounds.slice(0, 4);
+      
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'qualifier1',
+        stageName: 'Qualifier 1',
+        team1Id: null,
+        team1Name: '1st Place',
+        team2Id: null,
+        team2Name: '2nd Place',
+        venue: playoffVenues[0]?.name || 'TBD',
+        city: playoffVenues[0]?.city || 'TBD',
+        ...getVenueConditions(playoffVenues[0]?.name || ''),
+        description: 'Winner advances to Final',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'eliminator',
+        stageName: 'Eliminator',
+        team1Id: null,
+        team1Name: '3rd Place',
+        team2Id: null,
+        team2Name: '4th Place',
+        venue: playoffVenues[1]?.name || 'TBD',
+        city: playoffVenues[1]?.city || 'TBD',
+        ...getVenueConditions(playoffVenues[1]?.name || ''),
+        description: 'Loser eliminated',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'qualifier2',
+        stageName: 'Qualifier 2',
+        team1Id: null,
+        team1Name: 'Loser of Q1',
+        team2Id: null,
+        team2Name: 'Winner of Eliminator',
+        venue: playoffVenues[2]?.name || 'TBD',
+        city: playoffVenues[2]?.city || 'TBD',
+        ...getVenueConditions(playoffVenues[2]?.name || ''),
+        description: 'Winner advances to Final',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'final',
+        stageName: 'Final',
+        team1Id: null,
+        team1Name: 'Winner of Q1',
+        team2Id: null,
+        team2Name: 'Winner of Q2',
+        venue: playoffVenues[3]?.name || 'TBD',
+        city: playoffVenues[3]?.city || 'TBD',
+        ...getVenueConditions(playoffVenues[3]?.name || ''),
+        description: 'Championship Match',
+      });
+    } else {
+      // Traditional Style
+      if (playoffTeams === 2) {
+        // Just Final
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Id: null,
+          team1Name: '1st Place',
+          team2Id: null,
+          team2Name: '2nd Place',
+          venue: grounds[0]?.name || 'TBD',
+          city: grounds[0]?.city || 'TBD',
+          ...getVenueConditions(grounds[0]?.name || ''),
+          description: 'Championship Match',
+        });
+      } else if (playoffTeams === 4) {
+        // 2 Semi-finals + Final
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 1',
+          team1Id: null,
+          team1Name: '1st Place',
+          team2Id: null,
+          team2Name: '4th Place',
+          venue: grounds[0]?.name || 'TBD',
+          city: grounds[0]?.city || 'TBD',
+          ...getVenueConditions(grounds[0]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 2',
+          team1Id: null,
+          team1Name: '2nd Place',
+          team2Id: null,
+          team2Name: '3rd Place',
+          venue: grounds[1]?.name || 'TBD',
+          city: grounds[1]?.city || 'TBD',
+          ...getVenueConditions(grounds[1]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Id: null,
+          team1Name: 'Winner SF1',
+          team2Id: null,
+          team2Name: 'Winner SF2',
+          venue: grounds[2]?.name || 'TBD',
+          city: grounds[2]?.city || 'TBD',
+          ...getVenueConditions(grounds[2]?.name || ''),
+          description: 'Championship Match',
+        });
+      } else if (playoffTeams === 8) {
+        // 4 Quarter-finals + 2 Semi-finals + Final
+        for (let i = 0; i < 4; i++) {
+          const positions = [[1, 8], [4, 5], [2, 7], [3, 6]];
+          playoffs.push({
+            matchNumber: matchNum++,
+            stage: 'quarterfinal',
+            stageName: `Quarter-Final ${i + 1}`,
+            team1Id: null,
+            team1Name: `${positions[i][0]}${getOrdinalSuffix(positions[i][0])} Place`,
+            team2Id: null,
+            team2Name: `${positions[i][1]}${getOrdinalSuffix(positions[i][1])} Place`,
+            venue: grounds[i % grounds.length]?.name || 'TBD',
+            city: grounds[i % grounds.length]?.city || 'TBD',
+            ...getVenueConditions(grounds[i % grounds.length]?.name || ''),
+            description: 'Winner advances to Semi-Final',
+          });
+        }
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 1',
+          team1Id: null,
+          team1Name: 'Winner QF1',
+          team2Id: null,
+          team2Name: 'Winner QF2',
+          venue: grounds[4 % grounds.length]?.name || 'TBD',
+          city: grounds[4 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[4 % grounds.length]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 2',
+          team1Id: null,
+          team1Name: 'Winner QF3',
+          team2Id: null,
+          team2Name: 'Winner QF4',
+          venue: grounds[5 % grounds.length]?.name || 'TBD',
+          city: grounds[5 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[5 % grounds.length]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Id: null,
+          team1Name: 'Winner SF1',
+          team2Id: null,
+          team2Name: 'Winner SF2',
+          venue: grounds[6 % grounds.length]?.name || 'TBD',
+          city: grounds[6 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[6 % grounds.length]?.name || ''),
+          description: 'Championship Match',
+        });
+      }
+    }
+
+    setPlayoffMatches(playoffs);
+  };
+
+  // Helper for ordinal suffix
+  const getOrdinalSuffix = (n: number): string => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return s[(v - 20) % 10] || s[v] || s[0];
+  };
+
   const updateMatchCondition = (matchIndex: number, field: string, value: string) => {
     setGeneratedMatches(prev => {
       const updated = [...prev];
@@ -365,7 +588,18 @@ export default function AdminPage() {
             pitchType: m.pitchType,
             pitchSurface: m.pitchSurface,
             cracks: m.cracks,
+            stage: 'group',
+            stageName: m.groupName,
           })),
+          playoffSchedule: newTournament.hasPlayoffs ? playoffMatches.map(m => ({
+            venue: m.venue,
+            city: m.city,
+            pitchType: m.pitchType,
+            pitchSurface: m.pitchSurface,
+            cracks: m.cracks,
+            stage: m.stage,
+            stageName: m.stageName,
+          })) : [],
         }),
       });
 
@@ -380,8 +614,12 @@ export default function AdminPage() {
           selectedTeamIds: [],
           numberOfGroups: 1,
           roundRobinType: 'single',
+          hasPlayoffs: false,
+          playoffStyle: 'ipl',
+          playoffTeams: 4,
         });
         setGeneratedMatches([]);
+        setPlayoffMatches([]);
         fetchFixturesData();
       } else {
         setMessage({ type: 'error', text: result.error || 'Failed to create tournament' });
@@ -426,6 +664,15 @@ export default function AdminPage() {
       generateMatchesPreview();
     }
   }, [newTournament.selectedTeamIds, newTournament.numberOfGroups, newTournament.roundRobinType, grounds, venueProfiles, defaultProfile]);
+
+  // Effect to generate playoff preview when playoff settings change
+  useEffect(() => {
+    if (newTournament.hasPlayoffs && grounds.length > 0) {
+      generatePlayoffMatchesPreview();
+    } else {
+      setPlayoffMatches([]);
+    }
+  }, [newTournament.hasPlayoffs, newTournament.playoffStyle, newTournament.playoffTeams, generatedMatches.length, grounds]);
 
   // Regenerate all match conditions with realistic venue-based random values
   const regenerateConditions = () => {
@@ -595,6 +842,215 @@ export default function AdminPage() {
       setSendingToDiscord(false);
     }
   };
+
+  // Generate playoff preview for existing tournament
+  const generateExistingPlayoffPreview = (tournament: any) => {
+    const { style, teams } = playoffConfig;
+    if (!tournament) return;
+
+    const playoffs: any[] = [];
+    let matchNum = tournament.totalMatches + 1;
+
+    if (style === 'ipl') {
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'qualifier1',
+        stageName: 'Qualifier 1',
+        team1Name: '1st Place',
+        team2Name: '2nd Place',
+        venue: grounds[0]?.name || 'TBD',
+        city: grounds[0]?.city || 'TBD',
+        ...getVenueConditions(grounds[0]?.name || ''),
+        description: 'Winner advances to Final',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'eliminator',
+        stageName: 'Eliminator',
+        team1Name: '3rd Place',
+        team2Name: '4th Place',
+        venue: grounds[1]?.name || 'TBD',
+        city: grounds[1]?.city || 'TBD',
+        ...getVenueConditions(grounds[1]?.name || ''),
+        description: 'Loser eliminated',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'qualifier2',
+        stageName: 'Qualifier 2',
+        team1Name: 'Loser of Q1',
+        team2Name: 'Winner of Eliminator',
+        venue: grounds[2]?.name || 'TBD',
+        city: grounds[2]?.city || 'TBD',
+        ...getVenueConditions(grounds[2]?.name || ''),
+        description: 'Winner advances to Final',
+      });
+
+      playoffs.push({
+        matchNumber: matchNum++,
+        stage: 'final',
+        stageName: 'Final',
+        team1Name: 'Winner of Q1',
+        team2Name: 'Winner of Q2',
+        venue: grounds[3]?.name || 'TBD',
+        city: grounds[3]?.city || 'TBD',
+        ...getVenueConditions(grounds[3]?.name || ''),
+        description: 'Championship Match',
+      });
+    } else {
+      if (teams === 2) {
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Name: '1st Place',
+          team2Name: '2nd Place',
+          venue: grounds[0]?.name || 'TBD',
+          city: grounds[0]?.city || 'TBD',
+          ...getVenueConditions(grounds[0]?.name || ''),
+          description: 'Championship Match',
+        });
+      } else if (teams === 4) {
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 1',
+          team1Name: '1st Place',
+          team2Name: '4th Place',
+          venue: grounds[0]?.name || 'TBD',
+          city: grounds[0]?.city || 'TBD',
+          ...getVenueConditions(grounds[0]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 2',
+          team1Name: '2nd Place',
+          team2Name: '3rd Place',
+          venue: grounds[1]?.name || 'TBD',
+          city: grounds[1]?.city || 'TBD',
+          ...getVenueConditions(grounds[1]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Name: 'Winner SF1',
+          team2Name: 'Winner SF2',
+          venue: grounds[2]?.name || 'TBD',
+          city: grounds[2]?.city || 'TBD',
+          ...getVenueConditions(grounds[2]?.name || ''),
+          description: 'Championship Match',
+        });
+      } else if (teams === 8) {
+        const positions = [[1, 8], [4, 5], [2, 7], [3, 6]];
+        for (let i = 0; i < 4; i++) {
+          playoffs.push({
+            matchNumber: matchNum++,
+            stage: 'quarterfinal',
+            stageName: `Quarter-Final ${i + 1}`,
+            team1Name: `${positions[i][0]}${getOrdinalSuffix(positions[i][0])} Place`,
+            team2Name: `${positions[i][1]}${getOrdinalSuffix(positions[i][1])} Place`,
+            venue: grounds[i % grounds.length]?.name || 'TBD',
+            city: grounds[i % grounds.length]?.city || 'TBD',
+            ...getVenueConditions(grounds[i % grounds.length]?.name || ''),
+            description: 'Winner advances to Semi-Final',
+          });
+        }
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 1',
+          team1Name: 'Winner QF1',
+          team2Name: 'Winner QF2',
+          venue: grounds[4 % grounds.length]?.name || 'TBD',
+          city: grounds[4 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[4 % grounds.length]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'semifinal',
+          stageName: 'Semi-Final 2',
+          team1Name: 'Winner QF3',
+          team2Name: 'Winner QF4',
+          venue: grounds[5 % grounds.length]?.name || 'TBD',
+          city: grounds[5 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[5 % grounds.length]?.name || ''),
+          description: 'Winner advances to Final',
+        });
+
+        playoffs.push({
+          matchNumber: matchNum++,
+          stage: 'final',
+          stageName: 'Final',
+          team1Name: 'Winner SF1',
+          team2Name: 'Winner SF2',
+          venue: grounds[6 % grounds.length]?.name || 'TBD',
+          city: grounds[6 % grounds.length]?.city || 'TBD',
+          ...getVenueConditions(grounds[6 % grounds.length]?.name || ''),
+          description: 'Championship Match',
+        });
+      }
+    }
+
+    setExistingPlayoffMatches(playoffs);
+  };
+
+  // Save playoffs to existing tournament
+  const savePlayoffsToTournament = async () => {
+    if (!addingPlayoffsTo || existingPlayoffMatches.length === 0) return;
+
+    try {
+      const res = await fetch('/api/fixtures', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_playoffs',
+          tournamentId: addingPlayoffsTo.id,
+          playoffStyle: playoffConfig.style,
+          playoffTeams: playoffConfig.teams,
+          playoffSchedule: existingPlayoffMatches.map(m => ({
+            venue: m.venue,
+            city: m.city,
+            pitchType: m.pitchType,
+            pitchSurface: m.pitchSurface,
+            cracks: m.cracks,
+            stage: m.stage,
+            stageName: m.stageName,
+          })),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'Playoff fixtures added successfully!' });
+        setAddingPlayoffsTo(null);
+        setExistingPlayoffMatches([]);
+        fetchFixturesData();
+      } else {
+        setMessage({ type: 'error', text: data.error || 'Failed to add playoffs' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Failed to add playoffs' });
+    }
+  };
+
+  // Effect to regenerate playoff preview when config changes
+  useEffect(() => {
+    if (addingPlayoffsTo) {
+      generateExistingPlayoffPreview(addingPlayoffsTo);
+    }
+  }, [addingPlayoffsTo, playoffConfig, grounds]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1631,6 +2087,62 @@ export default function AdminPage() {
                 </div>
               </div>
 
+              {/* Playoff Options */}
+              <div className="bg-surface rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="hasPlayoffs"
+                    checked={newTournament.hasPlayoffs}
+                    onChange={e => setNewTournament({ ...newTournament, hasPlayoffs: e.target.checked })}
+                    className="rounded"
+                  />
+                  <label htmlFor="hasPlayoffs" className="text-sm font-medium cursor-pointer">
+                    Include Playoff Stage 🏆
+                  </label>
+                </div>
+                
+                {newTournament.hasPlayoffs && (
+                  <div className="grid grid-cols-2 gap-4 mt-3 pl-6 border-l-2 border-accent/30">
+                    <div>
+                      <label className="block text-sm text-gray-400 mb-1">Playoff Style</label>
+                      <select
+                        value={newTournament.playoffStyle}
+                        onChange={e => setNewTournament({ 
+                          ...newTournament, 
+                          playoffStyle: e.target.value as 'ipl' | 'traditional',
+                          playoffTeams: e.target.value === 'ipl' ? 4 : newTournament.playoffTeams,
+                        })}
+                        className="input w-full"
+                      >
+                        <option value="ipl">IPL Style (4 teams)</option>
+                        <option value="traditional">Traditional (Semi-Finals)</option>
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {newTournament.playoffStyle === 'ipl' 
+                          ? 'Q1 → Final, Eliminator, Q2 → Final' 
+                          : 'Direct knockout rounds'}
+                      </p>
+                    </div>
+                    
+                    {newTournament.playoffStyle === 'traditional' && (
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Teams in Playoffs</label>
+                        <select
+                          value={newTournament.playoffTeams}
+                          onChange={e => setNewTournament({ ...newTournament, playoffTeams: parseInt(e.target.value) })}
+                          className="input w-full"
+                        >
+                          <option value={2}>2 Teams (Final only)</option>
+                          <option value={4}>4 Teams (Semi-Finals + Final)</option>
+                          <option value={8}>8 Teams (Quarter-Finals + Semi-Finals + Final)</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Team Selection */}
               <div>
                 <label className="block text-sm text-gray-400 mb-2">
@@ -1761,12 +2273,50 @@ export default function AdminPage() {
                 </div>
               )}
 
+              {/* Playoff Matches Preview */}
+              {newTournament.hasPlayoffs && playoffMatches.length > 0 && (
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <div>
+                      <label className="block text-sm text-gray-400">
+                        Playoff Matches ({playoffMatches.length} matches)
+                      </label>
+                      <span className="text-xs text-accent">
+                        🏆 {newTournament.playoffStyle === 'ipl' ? 'IPL Style' : 'Traditional'} Playoffs
+                      </span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {playoffMatches.map((match, index) => (
+                      <div key={index} className="bg-surface rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded">
+                            {match.stageName}
+                          </span>
+                          <span className="text-xs text-gray-500">Match {match.matchNumber}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-medium text-sm">{match.team1Name}</span>
+                          <span className="text-gray-500 text-xs">vs</span>
+                          <span className="font-medium text-sm">{match.team2Name}</span>
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          <span>📍 {match.venue}, {match.city}</span>
+                          <span className="ml-2">• {match.pitchType} | {match.pitchSurface}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 italic">{match.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={createTournament}
                 disabled={!newTournament.name || !newTournament.country || newTournament.selectedTeamIds.length < 2}
                 className="btn-primary w-full disabled:opacity-50"
               >
-                Create Tournament with {generatedMatches.length} Matches
+                Create Tournament with {generatedMatches.length + playoffMatches.length} Matches
               </button>
             </div>
           )}
@@ -1792,6 +2342,9 @@ export default function AdminPage() {
                           <span>👥 {tournament.numberOfGroups === 1 ? 'League' : `${tournament.numberOfGroups} Groups`}</span>
                           <span>🔄 {tournament.roundRobinType === 'double' ? 'Double' : 'Single'} RR</span>
                           <span>🏏 {tournament.completedMatches}/{tournament.totalMatches} matches</span>
+                          {tournament.hasPlayoffs && (
+                            <span className="text-accent">🏆 {tournament.playoffStyle === 'ipl' ? 'IPL' : 'Traditional'} Playoffs</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -1821,6 +2374,15 @@ export default function AdminPage() {
                           className="text-purple-400 hover:underline text-sm disabled:opacity-50"
                         >
                           {sendingToDiscord ? '📤 Sending...' : '📤 Send to Discord'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setAddingPlayoffsTo(tournament);
+                            setPlayoffConfig({ style: 'ipl', teams: 4 });
+                          }}
+                          className="text-yellow-400 hover:underline text-sm"
+                        >
+                          🏆 Add Playoffs
                         </button>
                         <button
                           onClick={() => window.open(`/fixtures?tournamentId=${tournament.id}`, '_blank')}
@@ -1856,6 +2418,11 @@ export default function AdminPage() {
                                   <div className="flex-1">
                                     <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-1">
                                       <span className="font-medium">Match {match.matchNumber}</span>
+                                      {match.stageName && (
+                                        <span className="bg-accent/20 text-accent px-1.5 py-0.5 rounded">
+                                          {match.stageName}
+                                        </span>
+                                      )}
                                       <span className={`px-1.5 py-0.5 rounded ${
                                         match.status === 'completed' ? 'bg-green-500/20 text-green-400' :
                                         match.status === 'live' ? 'bg-red-500/20 text-red-400' :
@@ -1868,14 +2435,14 @@ export default function AdminPage() {
                                     {/* Teams and Scores */}
                                     <div className="flex items-center gap-2 mb-2">
                                       <span className={`font-medium ${match.winnerId === match.team1Id ? 'text-green-400' : ''}`}>
-                                        {match.team1Name}
+                                        {match.team1Name || 'TBD'}
                                       </span>
                                       {match.team1Score && (
                                         <span className="text-sm text-gray-400">{match.team1Score}</span>
                                       )}
                                       <span className="text-gray-500 mx-1">vs</span>
                                       <span className={`font-medium ${match.winnerId === match.team2Id ? 'text-green-400' : ''}`}>
-                                        {match.team2Name}
+                                        {match.team2Name || 'TBD'}
                                       </span>
                                       {match.team2Score && (
                                         <span className="text-sm text-gray-400">{match.team2Score}</span>
@@ -2047,6 +2614,109 @@ export default function AdminPage() {
                       className="flex-1 btn-primary"
                     >
                       Save Fixture
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Add Playoffs Modal */}
+          {addingPlayoffsTo && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="card max-w-2xl w-full m-4 max-h-[90vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">
+                  🏆 Add Playoffs to {addingPlayoffsTo.name}
+                </h3>
+                
+                <div className="space-y-4">
+                  {/* Playoff Configuration */}
+                  <div className="bg-surface rounded-lg p-4">
+                    <h4 className="font-medium mb-3">Playoff Configuration</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Playoff Style</label>
+                        <select
+                          value={playoffConfig.style}
+                          onChange={e => setPlayoffConfig({ 
+                            ...playoffConfig, 
+                            style: e.target.value as 'ipl' | 'traditional',
+                            teams: e.target.value === 'ipl' ? 4 : playoffConfig.teams,
+                          })}
+                          className="input w-full"
+                        >
+                          <option value="ipl">IPL Style (4 teams)</option>
+                          <option value="traditional">Traditional (Semi-Finals)</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {playoffConfig.style === 'ipl' 
+                            ? 'Qualifier 1 → Final, Eliminator, Qualifier 2 → Final' 
+                            : 'Direct knockout rounds'}
+                        </p>
+                      </div>
+                      
+                      {playoffConfig.style === 'traditional' && (
+                        <div>
+                          <label className="block text-sm text-gray-400 mb-1">Teams in Playoffs</label>
+                          <select
+                            value={playoffConfig.teams}
+                            onChange={e => setPlayoffConfig({ ...playoffConfig, teams: parseInt(e.target.value) })}
+                            className="input w-full"
+                          >
+                            <option value={2}>2 Teams (Final only)</option>
+                            <option value={4}>4 Teams (Semi-Finals + Final)</option>
+                            <option value={8}>8 Teams (Quarter + Semi + Final)</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Playoff Preview */}
+                  {existingPlayoffMatches.length > 0 && (
+                    <div>
+                      <h4 className="font-medium mb-3">Playoff Matches Preview ({existingPlayoffMatches.length})</h4>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {existingPlayoffMatches.map((match, index) => (
+                          <div key={index} className="bg-surface rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded">
+                                {match.stageName}
+                              </span>
+                              <span className="text-xs text-gray-500">Match {match.matchNumber}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="font-medium text-sm">{match.team1Name}</span>
+                              <span className="text-gray-500 text-xs">vs</span>
+                              <span className="font-medium text-sm">{match.team2Name}</span>
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              <span>📍 {match.venue}, {match.city}</span>
+                              <span className="ml-2">• {match.pitchType} | {match.pitchSurface}</span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1 italic">{match.description}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => {
+                        setAddingPlayoffsTo(null);
+                        setExistingPlayoffMatches([]);
+                      }}
+                      className="flex-1 bg-surface-light hover:bg-surface py-2 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={savePlayoffsToTournament}
+                      disabled={existingPlayoffMatches.length === 0}
+                      className="flex-1 btn-primary disabled:opacity-50"
+                    >
+                      Add {existingPlayoffMatches.length} Playoff Matches
                     </button>
                   </div>
                 </div>

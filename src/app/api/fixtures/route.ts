@@ -672,7 +672,11 @@ export async function POST(request: NextRequest) {
       selectedTeamIds, 
       numberOfGroups, 
       roundRobinType,
-      matchSchedule // Array of { team1Id, team2Id, venue, city, matchDate, matchTime, pitchType, pitchSurface, cracks }
+      hasPlayoffs,
+      playoffStyle,
+      playoffTeams,
+      matchSchedule, // Array of { team1Id, team2Id, venue, city, matchDate, matchTime, pitchType, pitchSurface, cracks, stage, stageName }
+      playoffSchedule, // Array of { venue, city, pitchType, pitchSurface, cracks, stage, stageName }
     } = body;
 
     if (!name || !country || !selectedTeamIds || selectedTeamIds.length < 2) {
@@ -687,6 +691,9 @@ export async function POST(request: NextRequest) {
       roundRobinType: roundRobinType || 'single',
       status: 'upcoming',
       createdAt: new Date().toISOString(),
+      hasPlayoffs: hasPlayoffs || false,
+      playoffStyle: playoffStyle || null,
+      playoffTeams: playoffTeams || null,
     }).returning();
 
     const tournamentId = newTournament[0].id;
@@ -755,7 +762,34 @@ export async function POST(request: NextRequest) {
           pitchSurface: match.pitchSurface || 'Medium',
           cracks: match.cracks || 'None',
           status: 'upcoming',
+          stage: match.stage || 'group',
+          stageName: match.stageName || null,
         });
+      }
+      
+      // Create playoff matches if provided
+      if (playoffSchedule && playoffSchedule.length > 0) {
+        const startMatchNumber = matchSchedule.length + 1;
+        for (let i = 0; i < playoffSchedule.length; i++) {
+          const playoff = playoffSchedule[i];
+          await db.insert(matches).values({
+            tournamentId,
+            groupId: null, // Playoffs don't belong to a group
+            matchNumber: startMatchNumber + i,
+            team1Id: null, // TBD - will be filled in later
+            team2Id: null,
+            venue: playoff.venue,
+            city: playoff.city,
+            matchDate: playoff.matchDate || null,
+            matchTime: playoff.matchTime || null,
+            pitchType: playoff.pitchType || 'Standard',
+            pitchSurface: playoff.pitchSurface || 'Medium',
+            cracks: playoff.cracks || 'None',
+            status: 'upcoming',
+            stage: playoff.stage,
+            stageName: playoff.stageName,
+          });
+        }
       }
     } else {
       // Auto-generate round-robin fixtures
@@ -922,6 +956,60 @@ export async function PUT(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, message: `Fixtures sent to Discord (${chunks.length} message(s))` });
+    }
+
+    // Action: Add playoffs to existing tournament
+    if (action === 'add_playoffs' && tournamentId) {
+      const { playoffStyle, playoffTeams, playoffSchedule } = body;
+      
+      if (!playoffSchedule || playoffSchedule.length === 0) {
+        return NextResponse.json({ error: 'No playoff schedule provided' }, { status: 400 });
+      }
+
+      // Update tournament with playoff config
+      await db.update(tournaments)
+        .set({
+          hasPlayoffs: true,
+          playoffStyle,
+          playoffTeams,
+        })
+        .where(eq(tournaments.id, tournamentId));
+
+      // Get current max match number
+      const existingMatches = await db.select()
+        .from(matches)
+        .where(eq(matches.tournamentId, tournamentId));
+      
+      const maxMatchNumber = existingMatches.length > 0 
+        ? Math.max(...existingMatches.map(m => m.matchNumber))
+        : 0;
+
+      // Create playoff matches
+      for (let i = 0; i < playoffSchedule.length; i++) {
+        const playoff = playoffSchedule[i];
+        await db.insert(matches).values({
+          tournamentId,
+          groupId: null, // Playoffs don't belong to a group
+          matchNumber: maxMatchNumber + i + 1,
+          team1Id: null, // TBD - will be filled in later
+          team2Id: null,
+          venue: playoff.venue,
+          city: playoff.city,
+          matchDate: playoff.matchDate || null,
+          matchTime: playoff.matchTime || null,
+          pitchType: playoff.pitchType || 'Standard',
+          pitchSurface: playoff.pitchSurface || 'Medium',
+          cracks: playoff.cracks || 'None',
+          status: 'upcoming',
+          stage: playoff.stage,
+          stageName: playoff.stageName,
+        });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        message: `Added ${playoffSchedule.length} playoff matches` 
+      });
     }
 
     // Action: Edit fixture details

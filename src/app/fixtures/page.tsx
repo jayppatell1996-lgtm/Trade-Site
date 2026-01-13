@@ -44,6 +44,8 @@ interface Match {
   team2Score: string | null;
   winnerId: number | null;
   result: string | null;
+  stage: string | null;
+  stageName: string | null;
 }
 
 interface Tournament {
@@ -55,12 +57,92 @@ interface Tournament {
   status: string;
   totalMatches: number;
   completedMatches: number;
+  hasPlayoffs?: boolean;
+  playoffStyle?: string;
+  playoffTeams?: number;
 }
 
 interface TournamentDetails {
   tournament: Tournament;
   groups: Group[];
   matches: Match[];
+}
+
+// Match Card Component
+function MatchCard({ match, showStage = false }: { match: Match; showStage?: boolean }) {
+  return (
+    <div 
+      className={`p-4 rounded-lg ${
+        match.status === 'completed' ? 'bg-surface-light/50' :
+        match.status === 'live' ? 'bg-green-500/10 border border-green-500/30' :
+        'bg-surface-light'
+      }`}
+    >
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Match {match.matchNumber}</span>
+          {showStage && match.stageName && (
+            <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded">
+              {match.stageName}
+            </span>
+          )}
+        </div>
+        <span className={`text-xs px-2 py-0.5 rounded ${
+          match.status === 'live' ? 'bg-green-500/20 text-green-400' :
+          match.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
+          'bg-yellow-500/20 text-yellow-400'
+        }`}>
+          {match.status === 'live' ? '🔴 LIVE' : match.status.toUpperCase()}
+        </span>
+      </div>
+      
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex-1">
+          <p className={`font-medium ${match.winnerId === match.team1Id ? 'text-green-400' : ''}`}>
+            {match.team1Name || 'TBD'}
+            {match.team1Score && <span className="ml-2 text-gray-400">{match.team1Score}</span>}
+          </p>
+        </div>
+        <div className="px-4 text-gray-500">vs</div>
+        <div className="flex-1 text-right">
+          <p className={`font-medium ${match.winnerId === match.team2Id ? 'text-green-400' : ''}`}>
+            {match.team2Name || 'TBD'}
+            {match.team2Score && <span className="mr-2 text-gray-400">{match.team2Score}</span>}
+          </p>
+        </div>
+      </div>
+
+      {match.result && (
+        <p className="text-sm text-accent mb-2">{match.result}</p>
+      )}
+
+      <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+        <span>📍 {match.venue}{match.city ? `, ${match.city}` : ''}</span>
+        {match.matchDate && <span>📅 {match.matchDate}</span>}
+        {match.matchTime && <span>🕐 {match.matchTime}</span>}
+      </div>
+
+      {(match.pitchType || match.pitchSurface || match.cracks) && (
+        <div className="flex flex-wrap gap-2 mt-2">
+          {match.pitchType && (
+            <span className="text-xs bg-surface px-2 py-1 rounded">
+              Pitch: {match.pitchType}
+            </span>
+          )}
+          {match.pitchSurface && (
+            <span className="text-xs bg-surface px-2 py-1 rounded">
+              Surface: {match.pitchSurface}
+            </span>
+          )}
+          {match.cracks && match.cracks !== 'None' && (
+            <span className="text-xs bg-surface px-2 py-1 rounded">
+              Cracks: {match.cracks}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function FixturesPage() {
@@ -230,73 +312,37 @@ export default function FixturesPage() {
                     {selectedTournament.matches.length === 0 ? (
                       <p className="text-gray-400 text-center py-4">No matches scheduled</p>
                     ) : (
-                      selectedTournament.matches.map(match => (
-                        <div 
-                          key={match.id} 
-                          className={`p-4 rounded-lg ${
-                            match.status === 'completed' ? 'bg-surface-light/50' :
-                            match.status === 'live' ? 'bg-green-500/10 border border-green-500/30' :
-                            'bg-surface-light'
-                          }`}
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <span className="text-xs text-gray-500">Match {match.matchNumber}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded ${
-                              match.status === 'live' ? 'bg-green-500/20 text-green-400' :
-                              match.status === 'completed' ? 'bg-gray-500/20 text-gray-400' :
-                              'bg-yellow-500/20 text-yellow-400'
-                            }`}>
-                              {match.status === 'live' ? '🔴 LIVE' : match.status.toUpperCase()}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex-1">
-                              <p className={`font-medium ${match.winnerId === match.team1Id ? 'text-green-400' : ''}`}>
-                                {match.team1Name}
-                                {match.team1Score && <span className="ml-2 text-gray-400">{match.team1Score}</span>}
-                              </p>
-                            </div>
-                            <div className="px-4 text-gray-500">vs</div>
-                            <div className="flex-1 text-right">
-                              <p className={`font-medium ${match.winnerId === match.team2Id ? 'text-green-400' : ''}`}>
-                                {match.team2Name}
-                                {match.team2Score && <span className="mr-2 text-gray-400">{match.team2Score}</span>}
-                              </p>
-                            </div>
-                          </div>
+                      <>
+                        {/* Group Stage Matches */}
+                        {selectedTournament.matches.filter(m => !m.stage || m.stage === 'group').length > 0 && (
+                          <>
+                            <h4 className="text-sm font-medium text-gray-400 uppercase tracking-wider">
+                              Group Stage
+                            </h4>
+                            {selectedTournament.matches
+                              .filter(m => !m.stage || m.stage === 'group')
+                              .map(match => (
+                                <MatchCard key={match.id} match={match} />
+                              ))}
+                          </>
+                        )}
 
-                          {match.result && (
-                            <p className="text-sm text-accent mb-2">{match.result}</p>
-                          )}
-
-                          <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                            <span>📍 {match.venue}{match.city ? `, ${match.city}` : ''}</span>
-                            {match.matchDate && <span>📅 {match.matchDate}</span>}
-                            {match.matchTime && <span>🕐 {match.matchTime}</span>}
-                          </div>
-
-                          {(match.pitchType || match.pitchSurface || match.cracks) && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {match.pitchType && (
-                                <span className="text-xs bg-surface px-2 py-1 rounded">
-                                  Pitch: {match.pitchType}
-                                </span>
-                              )}
-                              {match.pitchSurface && (
-                                <span className="text-xs bg-surface px-2 py-1 rounded">
-                                  Surface: {match.pitchSurface}
-                                </span>
-                              )}
-                              {match.cracks && match.cracks !== 'None' && (
-                                <span className="text-xs bg-surface px-2 py-1 rounded">
-                                  Cracks: {match.cracks}
-                                </span>
-                              )}
+                        {/* Playoff Matches */}
+                        {selectedTournament.matches.filter(m => m.stage && m.stage !== 'group').length > 0 && (
+                          <>
+                            <div className="border-t border-border my-6 pt-4">
+                              <h4 className="text-sm font-medium text-accent uppercase tracking-wider flex items-center gap-2">
+                                🏆 Playoffs
+                              </h4>
                             </div>
-                          )}
-                        </div>
-                      ))
+                            {selectedTournament.matches
+                              .filter(m => m.stage && m.stage !== 'group')
+                              .map(match => (
+                                <MatchCard key={match.id} match={match} showStage />
+                              ))}
+                          </>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
